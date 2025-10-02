@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Verification - MusicRoom</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 60px 40px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            width: 90%;
+            animation: slideUp 0.6s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .icon {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: scaleIn 0.5s ease-out 0.2s both;
+        }
+        
+        .icon.success {
+            background: #4CAF50;
+        }
+        
+        .icon.error {
+            background: #f44336;
+        }
+        
+        .icon.info {
+            background: #2196F3;
+        }
+        
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+            to {
+                transform: scale(1);
+            }
+        }
+        
+        .icon-symbol {
+            width: 60px;
+            height: 60px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+        }
+        
+        .title {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            letter-spacing: -1px;
+        }
+        
+        .title.success {
+            color: #4CAF50;
+        }
+        
+        .title.error {
+            color: #f44336;
+        }
+        
+        .title.info {
+            color: #2196F3;
+        }
+        
+        .message {
+            font-size: 18px;
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 40px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-right: 10px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn.secondary {
+            background: #6c757d;
+        }
+        
+        .btn.secondary:hover {
+            box-shadow: 0 10px 20px rgba(108, 117, 125, 0.3);
+        }
+        
+        .musicroom-logo {
+            margin-top: 30px;
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 20px;
+        }
+        
+        .status-badge.success {
+            background: #e8f5e8;
+            color: #4CAF50;
+        }
+        
+        .status-badge.error {
+            background: #ffebee;
+            color: #f44336;
+        }
+        
+        .status-badge.info {
+            background: #e3f2fd;
+            color: #2196F3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Status Badge -->
+        {% if status == 'success' %}
+            <div class="status-badge success">Verification Successful</div>
+        {% elif status == 'already_verified' %}
+            <div class="status-badge info">Already Verified</div>
+        {% else %}
+            <div class="status-badge error">Verification Failed</div>
+        {% endif %}
+        
+        <!-- Icon -->
+        <div class="icon {{ icon_type }}">
+            {% if icon_type == 'success' %}
+                <div class="icon-symbol">✓</div>
+            {% elif icon_type == 'info' %}
+                <div class="icon-symbol">ℹ</div>
+            {% else %}
+                <div class="icon-symbol">✗</div>
+            {% endif %}
+        </div>
+        
+        <!-- Title -->
+        <h1 class="title {{ icon_type }}">{{ title }}</h1>
+        
+        <!-- Message -->
+        <p class="message">{{ message }}</p>
+        
+        <!-- Action Buttons -->
+        {% comment %} {% if status == 'success' %}
+            <a href="#" class="btn" onclick="redirectToLogin()">Continue to Login</a>
+            <a href="#" class="btn secondary" onclick="closeWindow()">Close</a>
+        {% elif status == 'already_verified' %}
+            <a href="#" class="btn" onclick="redirectToLogin()">Go to Login</a>
+            <a href="#" class="btn secondary" onclick="closeWindow()">Close</a>
+        {% else %}
+            <a href="#" class="btn" onclick="requestNewVerification()">Request New Link</a>
+            <a href="#" class="btn secondary" onclick="closeWindow()">Close</a>
+        {% endif %} {% endcomment %}
+        
+        <div class="musicroom-logo">MusicRoom</div>
+    </div>
+
+    <script>
+        function closeWindow() {
+            // Try to close the window (works if opened by script)
+            if (window.opener) {
+                window.close();
+            } else {
+                // Redirect to a success page or show instructions
+                alert('You can now close this tab and return to the app.');
+            }
+        }
+        
+        function redirectToLogin() {
+            // Redirect to login page - adjust URL as needed
+            if (window.opener) {
+                window.opener.location.href = '/login/';
+                window.close();
+            } else {
+                window.location.href = '/login/';
+            }
+        }
+        
+        function requestNewVerification() {
+            // Redirect to verification request page - adjust URL as needed
+            if (window.opener) {
+                window.opener.location.href = '/request-verification/';
+                window.close();
+            } else {
+                window.location.href = '/request-verification/';
+            }
+        }
+        
+        // Auto-close after 10 seconds for success
+        {% comment %} {% if status == 'success' %}
+        setTimeout(function() {
+            redirectToLogin();
+        }, 10000);
+        {% endif %} {% endcomment %}
+        
+        // Show countdown for auto-redirect
+        {% comment %} {% if status == 'success' %}
+        let countdown = 10;
+        const countdownElement = document.createElement('div');
+        countdownElement.style.cssText = 'margin-top: 20px; font-size: 14px; color: #666;';
+        countdownElement.innerHTML = `Redirecting to login in <span id="countdown">${countdown}</span> seconds...`;
+        document.querySelector('.container').appendChild(countdownElement);
+        
+        const countdownTimer = setInterval(function() {
+            countdown--;
+            document.getElementById('countdown').textContent = countdown;
+            if (countdown <= 0) {
+                clearInterval(countdownTimer);
+            }
+        }, 1000);
+        {% endif %} {% endcomment %}
+    </script>
+</body>
+</html>
