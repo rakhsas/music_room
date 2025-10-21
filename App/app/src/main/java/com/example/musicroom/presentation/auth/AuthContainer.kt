@@ -54,7 +54,7 @@ fun AuthContainer(onLoginSuccess: () -> Unit) {
     
     when (currentScreen) {
         AuthScreenState.Login -> {
-            LoginScreen(
+            LoginView(
                 onLoginSuccess = onLoginSuccess,
                 onSignUpClick = { 
                     currentScreen = AuthScreenState.SignUp 
@@ -67,7 +67,7 @@ fun AuthContainer(onLoginSuccess: () -> Unit) {
         }
         
         AuthScreenState.SignUp -> {
-            SignUpScreen(
+            RegistrationView(
                 onBackToLoginClick = { 
                     currentScreen = AuthScreenState.Login 
                 },
