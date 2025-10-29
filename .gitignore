@@ -10,6 +10,7 @@ build/
 venv/
 env/
 
+App/.gradle/
 # Django secret & settings
 # Backend/MusicRoom/settings.py
 # Backend/MusicRoom/urls.py
