@@ -68,9 +68,9 @@ fun NotificationCard(
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    
+
                     Spacer(modifier = Modifier.width(12.dp))
-                    
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = title,
@@ -78,7 +78,7 @@ fun NotificationCard(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        
+
                         Text(
                             text = "From $from",
                             color = TextSecondary,
@@ -86,7 +86,7 @@ fun NotificationCard(
                         )
                     }
                 }
-                
+
                 // Dismiss button (disabled when loading)
                 IconButton(
                     onClick = onDismiss,
@@ -101,9 +101,9 @@ fun NotificationCard(
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             // Notification message
             Text(
                 text = message,
@@ -113,9 +113,9 @@ fun NotificationCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // Action buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -150,7 +150,7 @@ fun NotificationCard(
                         )
                     }
                 }
-                
+
                 // View button
                 OutlinedButton(
                     onClick = onClick,

@@ -19,7 +19,7 @@ sealed class AuthScreenState {
 }
 
 @Composable
-fun AuthContainer(onLoginSuccess: () -> Unit) {
+fun AuthContainer(onLoginSuccess: () -> Unit, onOpenServerSettings: () -> Unit = {}) {
     val authViewModel: AuthViewModel = hiltViewModel()
     val authState by authViewModel.authState.collectAsState()
     var currentScreen by remember { mutableStateOf<AuthScreenState>(AuthScreenState.Login) }
@@ -36,48 +36,47 @@ fun AuthContainer(onLoginSuccess: () -> Unit) {
                 currentScreen = AuthScreenState.Login
                 authViewModel.clearState()
             }
-            is AuthState.GoogleSignInSuccess -> {
-                // Navigate to home after successful Google sign-in
-                onLoginSuccess()
-                authViewModel.clearState()
-            }
             else -> { /* No action needed */ }
         }
     }
 
     LaunchedEffect(currentScreen) {
+        // Every screen shares one AuthViewModel/authState, so a leftover Error or
+        // OTPVerified from the previous screen must not leak into the next one.
+        authViewModel.clearState()
         if (currentScreen == AuthScreenState.ForgotPassword) {
             forgotPasswordStep = PasswordResetStep.EMAIL_INPUT
             Log.d("AuthViewModel", "Resetting forgot password step to EMAIL_INPUT")
         }
     }
-    
+
     when (currentScreen) {
         AuthScreenState.Login -> {
-            LoginScreen(
+            LoginView(
                 onLoginSuccess = onLoginSuccess,
-                onSignUpClick = { 
-                    currentScreen = AuthScreenState.SignUp 
+                onSignUpClick = {
+                    currentScreen = AuthScreenState.SignUp
                 },
-                onForgotPasswordClick = { 
-                    currentScreen = AuthScreenState.ForgotPassword 
+                onForgotPasswordClick = {
+                    currentScreen = AuthScreenState.ForgotPassword
                 },
+                onOpenServerSettings = onOpenServerSettings,
                 viewModel = authViewModel
             )
         }
-        
+
         AuthScreenState.SignUp -> {
-            SignUpScreen(
-                onBackToLoginClick = { 
-                    currentScreen = AuthScreenState.Login 
+            RegistrationView(
+                onBackToLoginClick = {
+                    currentScreen = AuthScreenState.Login
                 },
                 viewModel = authViewModel
             )
         }
-        
+
         AuthScreenState.ForgotPassword -> {
             ForgotPasswordScreen(
-                onBackToLoginClick = { 
+                onBackToLoginClick = {
                     currentScreen = AuthScreenState.Login
                 },
                 onPasswordResetComplete = {

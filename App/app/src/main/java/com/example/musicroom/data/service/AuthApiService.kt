@@ -15,35 +15,8 @@ import javax.inject.Singleton
 import javax.net.ssl.HttpsURLConnection
 
 /**
- * ========================================================================================
- * AUTHENTICATION API SERVICE - READY FOR BACKEND INTEGRATION
- * ========================================================================================
- * 
- * This service provides complete authentication functionality with real API logic.
- * Currently using MOCK DATA for testing, but ready for backend integration.
- * 
- * 🚀 BACKEND INTEGRATION STEPS:
- * ========================================================================================
- * 1. Replace "YOUR_BACKEND_URL" constant with your actual backend URL
- * 2. Uncomment the real API call methods in each authentication function
- * 3. Remove the mock delay() and mock response generation code
- * 4. Test with your backend endpoints and adjust error handling as needed
- * 
- * 📡 BACKEND ENDPOINTS EXPECTED:
- * ========================================================================================
- * POST /auth/login        - Email/Password login
- * POST /auth/signup       - User registration  
- * POST /auth/forgot-password - Password reset request
- * POST /auth/google       - Google OAuth authentication
- * 
- * 🧪 MOCK DATA TESTING:
- * ========================================================================================
- * Login Success: test@example.com / password123
- * Login Failure: fail@example.com / any password
- * SignUp Success: Any valid email/password/name
- * Google Sign-In: Always succeeds with mock data
- * Forgot Password: Always succeeds with mock response
- * ========================================================================================
+ * Authentication API service: email/password login+signup, forgot-password, and
+ * Google social login, all hitting the real backend under /api/users/.
  */
 
 // ========================================================================================
@@ -62,7 +35,8 @@ data class LoginRequest(
  * Sign up request payload  
  */
 data class SignUpRequest(
-    val name: String,
+    val fullName: String,
+    val username: String,
     val email: String,
     val password: String,
     val avatar: String? = null
@@ -73,14 +47,6 @@ data class SignUpRequest(
  */
 data class ForgotPasswordRequest(
     val email: String
-)
-
-/**
- * Google Sign-In request payload
- */
-data class GoogleSignInRequest(
-    val idToken: String,
-    val accessToken: String? = null
 )
 
 /**
@@ -108,28 +74,12 @@ data class SignUpResponse(
     val user: UserInfo? = null,
     // Backend specific fields
     val id: Int? = null,
-    val name: String? = null,
+    val fullName: String? = null,
+    val username: String? = null,
     val email: String? = null,
     val avatar: String? = null
 )
 
-/**
- * Forgot password response model
- */
-data class ForgotPasswordResponse(
-    val success: Boolean,
-    val message: String
-)
-
-/**
- * Google Sign-In response model
- */
-data class GoogleSignInResponse(
-    val success: Boolean,
-    val message: String,
-    val token: String? = null,
-    val user: UserInfo? = null
-)
 
 /**
  * User information model - Updated to match backend API
@@ -137,7 +87,7 @@ data class GoogleSignInResponse(
 data class UserInfo(
     val id: String,
     val email: String,
-    val name: String,
+    val fullName: String,
     val username: String? = null,
     val avatar: String? = null
 )
@@ -169,16 +119,17 @@ class AuthApiService @Inject constructor() {
     /**
      * SIGNUP API CALL TO BACKEND (Codespaces compatible)
      */
-    suspend fun signUp(email: String, password: String, name: String): Result<SignUpResponse> {
+    suspend fun signUp(email: String, password: String, fullName: String, username: String): Result<SignUpResponse> {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d("AuthAPI", "📝 Attempting signup for: $email")
                 Log.d("AuthAPI", "🌐 Using base URL: ${NetworkConfig.getCurrentBaseUrl()}")
                 Log.d("AuthAPI", "🚀 Deployment: ${NetworkConfig.getDeploymentType()}")
-                
+
                 // Create the signup request matching your backend API
                 val requestBody = JSONObject().apply {
-                    put("name", name)
+                    put("full_name", fullName)
+                    put("username", username)
                     put("email", email)
                     put("password", password)
                 }
@@ -202,7 +153,8 @@ class AuthApiService @Inject constructor() {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "MusicRoom-Android-App")
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     // Add CORS headers for Codespaces
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", "https://crispy-fishstick-v7x7p6vgj75hpxrx-8000.app.github.dev")
@@ -249,12 +201,14 @@ class AuthApiService @Inject constructor() {
                                 user = UserInfo(
                                     id = jsonResponse.optString("id", ""),
                                     email = jsonResponse.optString("email", email),
-                                    name = jsonResponse.optString("name", name),
+                                    fullName = jsonResponse.optString("full_name", fullName),
+                                    username = jsonResponse.optString("username", username),
                                     avatar = jsonResponse.optString("avatar", "default_avatar.png")
                                 ),
                                 // Store backend response fields
                                 id = jsonResponse.optInt("id"),
-                                name = jsonResponse.optString("name"),
+                                fullName = jsonResponse.optString("full_name"),
+                                username = jsonResponse.optString("username"),
                                 email = jsonResponse.optString("email"),
                                 avatar = jsonResponse.optString("avatar")
                             )
@@ -264,7 +218,7 @@ class AuthApiService @Inject constructor() {
                                 success = true,
                                 message = "Account created successfully",
                                 token = null,
-                                user = UserInfo(id = "", email = email, name = name, avatar = "default_avatar.png")
+                                user = UserInfo(id = "", email = email, fullName = fullName, username = username, avatar = "default_avatar.png")
                             )
                         }
                     }
@@ -342,7 +296,8 @@ class AuthApiService @Inject constructor() {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "MusicRoom-Android-App")
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -398,7 +353,7 @@ class AuthApiService @Inject constructor() {
                                 UserInfo(
                                     id = userObject.optInt("id", 0).toString(),
                                     email = userObject.optString("email", email),
-                                    name = userObject.optString("name", ""),
+                                    fullName = userObject.optString("full_name", ""),
                                     username = userObject.optString("username"),
                                     avatar = userObject.optString("avatar", "default_avatar.png")
                                 )
@@ -484,70 +439,98 @@ class AuthApiService @Inject constructor() {
     
     /**
      * ========================================================================
-     * FORGOT PASSWORD API
-     * ========================================================================
-     * 
-     * Sends password reset email to user.
-     * ========================================================================
-     */
-    suspend fun forgotPassword(email: String): Result<ForgotPasswordResponse> {
-        return withContext(Dispatchers.IO) {
-            try {
-                Log.d("AuthAPI", "🔑 Sending password reset for: $email")
-                
-                // Mock data for testing - replace with real API call
-                // Mock success response
-                val response = ForgotPasswordResponse(
-                    success = true,
-                    message = "Password reset email sent to $email"
-                )
-                
-                Log.d("AuthAPI", "✅ Password reset response: ${response.success}")
-                Result.success(response)
-                
-            } catch (e: Exception) {
-                Log.e("AuthAPI", "❌ Password reset error: ${e.message}")
-                Result.failure(e)
-            }
-        }
-    }
-    
-    /**
-     * ========================================================================
      * GOOGLE SIGN-IN API
      * ========================================================================
-     * 
-     * Authenticates user with Google OAuth credentials.
+     *
+     * Logs the user in (or registers them on first use) via a real Google ID
+     * token, obtained from GoogleAuthUiClient (Google Sign-In SDK). Hits the
+     * /api/users/social-login/ endpoint the backend exposes for social login.
      * ========================================================================
      */
-    suspend fun signInWithGoogle(idToken: String, accessToken: String? = null): Result<GoogleSignInResponse> {
+    suspend fun signInWithGoogle(idToken: String): Result<LoginResponse> {
+        return socialLogin("google", idToken)
+    }
+
+    private suspend fun socialLogin(provider: String, accessToken: String): Result<LoginResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d("AuthAPI", "🔗 Attempting Google Sign-In")
-                
-                // Mock data for testing - replace with real API call
-                // Mock success response
-                val response = GoogleSignInResponse(
-                    success = true,
-                    message = "Google Sign-In successful",
-                    token = "mock_jwt_token_${System.currentTimeMillis()}",
-                    user = UserInfo(
-                        id = "google_user_${idToken.hashCode()}",
-                        email = "google.user@example.com",
-                        name = "Google User"
+                Log.d("AuthAPI", "🔗 Attempting $provider social login")
+
+                val requestBody = JSONObject().apply {
+                    put("provider", provider)
+                    put("access_token", accessToken)
+                }
+
+                val fullUrl = NetworkConfig.getFullUrl(NetworkConfig.Endpoints.SOCIAL_LOGIN)
+                val connection = (URL(fullUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    doInput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                    NetworkConfig.applyDeviceHeaders(this)
+
+                    if (NetworkConfig.isCodespaces()) {
+                        setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
+                    }
+
+                    connectTimeout = NetworkConfig.Settings.CONNECT_TIMEOUT.toInt()
+                    readTimeout = NetworkConfig.Settings.READ_TIMEOUT.toInt()
+                }
+
+                OutputStreamWriter(connection.outputStream).use { writer ->
+                    writer.write(requestBody.toString())
+                    writer.flush()
+                }
+
+                val responseCode = connection.responseCode
+                val responseText = if (responseCode in 200..299) {
+                    BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                } else {
+                    BufferedReader(InputStreamReader(connection.errorStream ?: connection.inputStream)).use { it.readText() }
+                }
+
+                Log.d("AuthAPI", "📨 $provider social login response ($responseCode): $responseText")
+
+                val jsonResponse = JSONObject(responseText)
+
+                if (responseCode == 200) {
+                    val userObject = jsonResponse.optJSONObject("user")
+                    val user = if (userObject != null) {
+                        UserInfo(
+                            id = userObject.optInt("id", 0).toString(),
+                            email = userObject.optString("email"),
+                            fullName = userObject.optString("full_name"),
+                            username = userObject.optString("username"),
+                            avatar = userObject.optString("avatar", "default_avatar.png")
+                        )
+                    } else null
+
+                    val tokensObject = jsonResponse.optJSONObject("tokens")
+                    val accessJwt = tokensObject?.optString("access")
+                    val refreshJwt = tokensObject?.optString("refresh")
+
+                    Result.success(
+                        LoginResponse(
+                            success = true,
+                            message = jsonResponse.optString("message", "$provider login successful"),
+                            accessToken = accessJwt,
+                            refreshToken = refreshJwt,
+                            user = user,
+                            token = accessJwt
+                        )
                     )
-                )
-                
-                Log.d("AuthAPI", "✅ Google Sign-In response: ${response.success}")
-                Result.success(response)
-                
+                } else {
+                    val errorMessage = jsonResponse.optString("error", "Invalid $provider token")
+                    Result.success(LoginResponse(success = false, message = errorMessage))
+                }
             } catch (e: Exception) {
-                Log.e("AuthAPI", "❌ Google Sign-In error: ${e.message}")
-                Result.failure(e)
+                Log.e("AuthAPI", "❌ $provider social login error: ${e.message}", e)
+                Result.failure(Exception("Network error: ${e.message}"))
             }
         }
     }
-    
+
     /**
      * Logout user by blacklisting refresh token
      */
@@ -568,7 +551,8 @@ class AuthApiService @Inject constructor() {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
                     doOutput = true
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -643,32 +627,6 @@ class AuthApiService @Inject constructor() {
     }
     
     /**
-     * Helper method to store JWT tokens securely
-     * Call this after successful login to store tokens
-     */
-    fun storeTokens(accessToken: String?, refreshToken: String?) {
-        // TODO: Implement secure token storage using EncryptedSharedPreferences
-        // This is where you would store the tokens securely for future API calls
-        Log.d("AuthAPI", "📱 Storing tokens - Access: ${accessToken?.take(20)}..., Refresh: ${refreshToken?.take(20)}...")
-    }
-    
-    /**
-     * Helper method to get stored access token
-     */
-    fun getStoredAccessToken(): String? {
-        // TODO: Implement token retrieval from secure storage
-        return null
-    }
-    
-    /**
-     * Helper method to get stored refresh token
-     */
-    fun getStoredRefreshToken(): String? {
-        // TODO: Implement token retrieval from secure storage
-        return null
-    }
-    
-    /**
      * Parse validation errors from backend response
      */
     private fun parseValidationErrors(jsonResponse: JSONObject): String? {
@@ -676,8 +634,11 @@ class AuthApiService @Inject constructor() {
             val errors = mutableListOf<String>()
             
             // Check for field-specific errors
-            if (jsonResponse.has("name")) {
-                errors.add("Name: ${jsonResponse.optString("name")}")
+            if (jsonResponse.has("full_name")) {
+                errors.add("Name: ${jsonResponse.optString("full_name")}")
+            }
+            if (jsonResponse.has("username")) {
+                errors.add("Username: ${jsonResponse.optString("username")}")
             }
             if (jsonResponse.has("email")) {
                 errors.add("Email: ${jsonResponse.optString("email")}")

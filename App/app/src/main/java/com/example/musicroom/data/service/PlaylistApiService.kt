@@ -163,6 +163,7 @@ class PlaylistApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("PlaylistAPI", "❌ Unauthorized for public playlists")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required. Please log in again."))
                     }
                     403 -> {
@@ -233,6 +234,7 @@ class PlaylistApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("PlaylistAPI", "❌ Unauthorized for my playlists - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required. Please log in again."))
                     }
                     403 -> {
@@ -291,7 +293,7 @@ class PlaylistApiService @Inject constructor(
                 // Create JSON body matching your API exactly
                 val jsonBody = JSONObject().apply {
                     put("name", request.name.trim())
-                    put("is_public", request.isPublic)
+                    put("isPublic", request.isPublic)
                     request.description?.let { desc ->
                         if (desc.isNotBlank()) {
                             put("description", desc.trim())
@@ -326,6 +328,7 @@ class PlaylistApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("PlaylistAPI", "❌ Unauthorized")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication expired. Please log in again."))
                     }
                     409 -> {
@@ -380,6 +383,7 @@ class PlaylistApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("PlaylistAPI", "❌ Unauthorized")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required. Please log in again."))
                     }
                     404 -> {
@@ -437,6 +441,7 @@ class PlaylistApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("PlaylistAPI", "❌ Unauthorized")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required. Please log in again."))
                     }
                     403 -> {
@@ -507,6 +512,7 @@ class PlaylistApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("PlaylistAPI", "❌ Unauthorized")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication expired. Please log in again."))
                     }
                     else -> {
@@ -517,6 +523,138 @@ class PlaylistApiService @Inject constructor(
                 
             } catch (e: Exception) {
                 Log.e("PlaylistAPI", "❌ Exception removing track from playlist", e)
+                Result.failure(Exception("Network error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
+     * Invite a user (by username) to collaborate on a playlist
+     */
+    suspend fun inviteUserToPlaylist(playlistId: String, username: String): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("PlaylistAPI", "📧 Inviting '$username' to playlist $playlistId")
+
+                val token = tokenManager.getToken()
+                if (token == null) {
+                    Log.e("PlaylistAPI", "❌ No auth token for inviting user")
+                    return@withContext Result.failure(Exception("Authentication required. Please log in."))
+                }
+
+                // Resolve username -> user id
+//                val lookupUrl = NetworkConfig.BASE_URL + "/api/users/" +
+//                    java.net.URLEncoder.encode(username, "UTF-8") + "/"
+//                val lookupConnection = createConnection(lookupUrl, "GET", requireAuth = true)
+//                val lookupCode = lookupConnection.responseCode
+//                val lookupText = getResponseText(lookupConnection, lookupCode)
+//
+//                Log.e("PlatlistAPI", "❌❌❌❌❌❌" + lookupUrl + "❌❌❌❌❌")
+//
+//                if (lookupCode == 404) {
+//                    return@withContext Result.failure(Exception("User '$username' not found"))
+//                }
+//                if (lookupCode !in 200..299) {
+//                    Log.e("PlaylistAPI", "❌ User lookup failed: $lookupCode - $lookupText")
+//                    return@withContext Result.failure(Exception("Failed to find user '$username'"))
+//                }
+//                val userId = JSONObject(lookupText).getInt("id")
+//                Log.e("PLAYLISTAPI", "❌ User lookup " + userId)
+                // Invite the resolved user
+                val inviteUrl = NetworkConfig.BASE_URL + "/api/playlists/$playlistId/invite/"
+                val inviteConnection = createConnection(inviteUrl, "POST", requireAuth = true)
+                OutputStreamWriter(inviteConnection.outputStream).use { writer ->
+                    writer.write(JSONObject().put("username", username).toString())
+                    writer.flush()
+                }
+
+                val responseCode = inviteConnection.responseCode
+                val responseText = getResponseText(inviteConnection, responseCode)
+                Log.d("PlaylistAPI", "📨 Invite response code: $responseCode - $responseText")
+
+                when (responseCode) {
+                    200, 201 -> Result.success(
+                        JSONObject(responseText).optString("message", "User invited successfully")
+                    )
+                    403 -> Result.failure(Exception("You don't have permission to invite users to this playlist"))
+                    400 -> {
+                        val json = JSONObject(responseText)
+
+                        val message = json.optString(
+                            "message",
+                            json.optString("error", "Unable to invite user")
+                        )
+
+                        Result.failure(Exception(message))
+                    }
+                    401 -> { tokenManager.notifySessionExpired(); Result.failure(Exception("Authentication expired. Please log in again.")) }
+                    404 -> Result.failure(Exception("Playlist not found"))
+                    else -> Result.failure(Exception("Failed to invite user (Error $responseCode)"))
+                }
+            } catch (e: Exception) {
+                Log.e("PlaylistAPI", "❌ Exception inviting user to playlist", e)
+                Result.failure(Exception("Network error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
+     * Accept a pending playlist invitation
+     */
+    suspend fun acceptPlaylistInvitation(playlistId: String): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val connection = createConnection(
+                    NetworkConfig.BASE_URL + "/api/playlists/$playlistId/accept-invite/",
+                    "POST",
+                    requireAuth = true
+                )
+                val responseCode = connection.responseCode
+                val responseText = getResponseText(connection, responseCode)
+                Log.d("PlaylistAPI", "📨 Accept invite response code: $responseCode - $responseText")
+
+                when (responseCode) {
+                    200, 201 -> Result.success(
+                        JSONObject(responseText).optString("message", "Invitation accepted successfully")
+                    )
+                    400 -> Result.failure(Exception(JSONObject(responseText).optString("error", "Unable to accept invitation")))
+                    401 -> { tokenManager.notifySessionExpired(); Result.failure(Exception("Authentication expired. Please log in again.")) }
+                    404 -> Result.failure(Exception("Playlist not found"))
+                    else -> Result.failure(Exception("Failed to accept invitation (Error $responseCode)"))
+                }
+            } catch (e: Exception) {
+                Log.e("PlaylistAPI", "❌ Exception accepting playlist invitation", e)
+                Result.failure(Exception("Network error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
+     * Decline a pending playlist invitation
+     */
+    suspend fun declinePlaylistInvitation(playlistId: String): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val connection = createConnection(
+                    NetworkConfig.BASE_URL + "/api/playlists/$playlistId/decline-invite/",
+                    "POST",
+                    requireAuth = true
+                )
+                val responseCode = connection.responseCode
+                val responseText = getResponseText(connection, responseCode)
+                Log.d("PlaylistAPI", "📨 Decline invite response code: $responseCode - $responseText")
+
+                when (responseCode) {
+                    200, 201 -> Result.success(
+                        JSONObject(responseText).optString("message", "Invitation declined successfully")
+                    )
+                    400 -> Result.failure(Exception(JSONObject(responseText).optString("error", "Unable to decline invitation")))
+                    401 -> { tokenManager.notifySessionExpired(); Result.failure(Exception("Authentication expired. Please log in again.")) }
+                    404 -> Result.failure(Exception("Playlist not found"))
+                    else -> Result.failure(Exception("Failed to decline invitation (Error $responseCode)"))
+                }
+            } catch (e: Exception) {
+                Log.e("PlaylistAPI", "❌ Exception declining playlist invitation", e)
                 Result.failure(Exception("Network error: ${e.message}"))
             }
         }
@@ -562,6 +700,7 @@ class PlaylistApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("PlaylistAPI", "❌ Unauthorized")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication expired. Please log in again."))
                     }
                     else -> {
@@ -595,7 +734,8 @@ class PlaylistApiService @Inject constructor(
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("User-Agent", "MusicRoom-Android-App")
-            
+            NetworkConfig.applyDeviceHeaders(this)
+
             // Add authentication token
             val token = tokenManager.getToken()
             if (token != null) {
@@ -665,11 +805,11 @@ class PlaylistApiService @Inject constructor(
                 
                 val id = playlistJson.optInt("id", 0).toString()
                 val name = playlistJson.optString("name", "Untitled Playlist")
-                val trackCount = playlistJson.optInt("track_count", 0)
-                val followersCount = playlistJson.optInt("followers_count", 0)
-                val isPublic = playlistJson.optBoolean("is_public", true)
-                val createdAt = playlistJson.optString("created_at", null)
-                val canEdit = playlistJson.optBoolean("can_edit", false)
+                val trackCount = playlistJson.optInt("trackCount", 0)
+                val followersCount = playlistJson.optInt("followersCount", 0)
+                val isPublic = playlistJson.optBoolean("isPublic", true)
+                val createdAt = playlistJson.optString("createdAt", null)
+                val canEdit = playlistJson.optBoolean("canEdit", false)
                 
                 // Parse owner information if available
                 var createdBy: String? = null
@@ -680,8 +820,8 @@ class PlaylistApiService @Inject constructor(
                 
                 // Parse user role if available
                 var isOwnerPlaylist = isOwner
-                if (playlistJson.has("user_role")) {
-                    val userRolesArray = playlistJson.getJSONArray("user_role")
+                if (playlistJson.has("userRole")) {
+                    val userRolesArray = playlistJson.getJSONArray("userRole")
                     for (j in 0 until userRolesArray.length()) {
                         if (userRolesArray.getString(j) == "owner") {
                             isOwnerPlaylist = true
@@ -727,8 +867,8 @@ class PlaylistApiService @Inject constructor(
             val response = CreatePlaylistResponse(
                 id = json.optInt("id", 0).toString(),
                 name = json.optString("name", fallbackName),
-                isPublic = json.optBoolean("is_public", true),
-                createdAt = json.optString("created_at", null),
+                isPublic = json.optBoolean("isPublic", true),
+                createdAt = json.optString("createdAt", null),
                 message = "Playlist created successfully"
             )
             
@@ -779,14 +919,14 @@ class PlaylistApiService @Inject constructor(
             val json = JSONObject(responseText)
             
             // Parse playlist info
-            val playlistInfoJson = json.getJSONObject("playlist_info")
+            val playlistInfoJson = json.getJSONObject("playlistInfo")
             val playlistInfo = PlaylistInfo(
                 id = playlistInfoJson.getInt("id"),
                 name = playlistInfoJson.getString("name"),
                 owner = playlistInfoJson.getString("owner"),
-                track_count = playlistInfoJson.getInt("track_count"),
-                is_public = playlistInfoJson.getBoolean("is_public"),
-                followers_count = playlistInfoJson.getInt("followers_count")
+                track_count = playlistInfoJson.getInt("trackCount"),
+                is_public = playlistInfoJson.getBoolean("isPublic"),
+                followers_count = playlistInfoJson.getInt("followersCount")
             )
             
             Log.d("PlaylistAPI", "📋 Playlist info: ${playlistInfo.name}, expected ${playlistInfo.track_count} tracks")
@@ -887,9 +1027,9 @@ class PlaylistApiService @Inject constructor(
                 val id = playlistJson.optInt("id", 0).toString()
                 val name = playlistJson.optString("name", "Untitled Playlist")
                 val owner = playlistJson.optString("owner", "Unknown")
-                val trackCount = playlistJson.optInt("track_count", 0)
-                val followersCount = playlistJson.optInt("followers_count", 0)
-                val createdAt = playlistJson.optString("created_at", null)
+                val trackCount = playlistJson.optInt("trackCount", 0)
+                val followersCount = playlistJson.optInt("followersCount", 0)
+                val createdAt = playlistJson.optString("createdAt", null)
                 
                 val playlist = PublicPlaylist(
                     id = id,
@@ -941,11 +1081,11 @@ class PlaylistApiService @Inject constructor(
                 
                 val id = playlistJson.optInt("id", 0).toString()
                 val name = playlistJson.optString("name", "Untitled Playlist")
-                val trackCount = playlistJson.optInt("track_count", 0)
-                val followersCount = playlistJson.optInt("followers_count", 0)
-                val isPublic = playlistJson.optBoolean("is_public", true)
-                val canEdit = playlistJson.optBoolean("can_edit", false)
-                val createdAt = playlistJson.optString("created_at", null)
+                val trackCount = playlistJson.optInt("trackCount", 0)
+                val followersCount = playlistJson.optInt("followersCount", 0)
+                val isPublic = playlistJson.optBoolean("isPublic", true)
+                val canEdit = playlistJson.optBoolean("canEdit", false)
+                val createdAt = playlistJson.optString("createdAt", null)
                 
                 // Parse owner information
                 var ownerName = "Unknown"
@@ -956,8 +1096,8 @@ class PlaylistApiService @Inject constructor(
                 
                 // Parse user role
                 var isOwner = false
-                if (playlistJson.has("user_role")) {
-                    val userRolesArray = playlistJson.getJSONArray("user_role")
+                if (playlistJson.has("userRole")) {
+                    val userRolesArray = playlistJson.getJSONArray("userRole")
                     for (j in 0 until userRolesArray.length()) {
                         if (userRolesArray.getString(j) == "owner") {
                             isOwner = true

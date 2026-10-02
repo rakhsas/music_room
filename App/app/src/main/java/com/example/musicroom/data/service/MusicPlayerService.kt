@@ -2,7 +2,10 @@ package com.example.musicroom.data.service
 
 import android.content.Context
 import android.media.MediaPlayer
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
+import com.example.musicroom.BuildConfig
 import com.example.musicroom.data.models.Track
 import com.example.musicroom.data.network.NetworkConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -11,8 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -24,15 +31,39 @@ import javax.inject.Singleton
 @Singleton
 class MusicPlayerService @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val freeAudioService: FreeAudioService
+    private val freeAudioService: FreeAudioService,
+    private val deviceApiService: DeviceApiService
 ) {
     private val serviceScope = CoroutineScope(Dispatchers.Main)
     private var progressJob: Job? = null
     private var mediaPlayer: MediaPlayer? = null
+
+    // Music Control Delegation: this device's stable id, registered to the current
+    // account so friends can be granted play/pause/skip control over it.
+    private val localDeviceId: String by lazy {
+        Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown-device"
+    }
+    private var deviceRegistered = false
+
+    init {
+        startControlDelegationPolling()
+    }
     
     private val _currentTrack = MutableStateFlow<Track?>(null)
     val currentTrack: StateFlow<Track?> = _currentTrack.asStateFlow()
-    
+
+    // Playback queue (V.2.4): the list the current track was played from, so Previous/Next can
+    // step through it. playTrack() re-syncs the index whenever the track is found in this list,
+    // so callers that never set a queue just get a single-item one (no prev/next).
+    private val _queue = MutableStateFlow<List<Track>>(emptyList())
+    private val _queueIndex = MutableStateFlow(-1)
+    val hasPrevious: StateFlow<Boolean> = _queueIndex
+        .map { it > 0 }
+        .stateIn(serviceScope, SharingStarted.Eagerly, false)
+    val hasNext: StateFlow<Boolean> = combine(_queue, _queueIndex) { queue, index ->
+        index in 0 until (queue.size - 1)
+    }.stateIn(serviceScope, SharingStarted.Eagerly, false)
+
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
     
@@ -51,11 +82,28 @@ class MusicPlayerService @Inject constructor(
     private val _repeatMode = MutableStateFlow(RepeatMode.OFF)
     val repeatMode: StateFlow<RepeatMode> = _repeatMode.asStateFlow()
     
-    fun playTrack(track: Track) {
+    /** Sets the list the given track was picked from, then plays it - enables Previous/Next. */
+    fun setQueueAndPlay(tracks: List<Track>, startIndex: Int) {
+        _queue.value = tracks
+        _queueIndex.value = startIndex
+        playTrack(tracks[startIndex], syncQueue = false)
+    }
+
+    fun playTrack(track: Track, syncQueue: Boolean = true) {
+        if (syncQueue) {
+            val indexInQueue = _queue.value.indexOfFirst { it.id == track.id }
+            if (indexInQueue >= 0) {
+                _queueIndex.value = indexInQueue
+            } else {
+                _queue.value = listOf(track)
+                _queueIndex.value = 0
+            }
+        }
+
         _currentTrack.value = track
         _currentPosition.value = 0f
         _isPlayerReady.value = false
-        
+
         Log.d("MusicPlayer", "🎵 Loading track: ${track.title} by ${track.artist}")
         Log.d("MusicPlayer", "🔍 Track ID: ${track.id}")
         
@@ -216,6 +264,32 @@ class MusicPlayerService @Inject constructor(
         }
     }
     
+    /** Plays the next track in the queue, if any. */
+    fun playNext() {
+        val queue = _queue.value
+        val nextIndex = _queueIndex.value + 1
+        if (nextIndex < queue.size) {
+            _queueIndex.value = nextIndex
+            playTrack(queue[nextIndex], syncQueue = false)
+        } else if (_repeatMode.value == RepeatMode.ALL && queue.isNotEmpty()) {
+            _queueIndex.value = 0
+            playTrack(queue[0], syncQueue = false)
+        }
+    }
+
+    /** Plays the previous track in the queue, if any. */
+    fun playPrevious() {
+        val queue = _queue.value
+        val prevIndex = _queueIndex.value - 1
+        if (prevIndex >= 0) {
+            _queueIndex.value = prevIndex
+            playTrack(queue[prevIndex], syncQueue = false)
+        } else if (_repeatMode.value == RepeatMode.ALL && queue.isNotEmpty()) {
+            _queueIndex.value = queue.size - 1
+            playTrack(queue[queue.size - 1], syncQueue = false)
+        }
+    }
+
     private fun handleTrackCompletion() {
         _isPlaying.value = false
         when (_repeatMode.value) {
@@ -223,14 +297,17 @@ class MusicPlayerService @Inject constructor(
                 _currentPosition.value = 0f
                 serviceScope.launch {
                     delay(500)
-                    _currentTrack.value?.let { playTrack(it) }
+                    _currentTrack.value?.let { playTrack(it, syncQueue = false) }
                 }
             }
-            RepeatMode.ALL -> {
+            RepeatMode.ALL, RepeatMode.OFF -> {
                 _currentPosition.value = 0f
-            }
-            RepeatMode.OFF -> {
-                _currentPosition.value = 0f
+                if (hasNext.value || _repeatMode.value == RepeatMode.ALL) {
+                    serviceScope.launch {
+                        delay(500)
+                        playNext()
+                    }
+                }
             }
         }
     }
@@ -267,6 +344,57 @@ class MusicPlayerService @Inject constructor(
     fun release() {
         releaseMediaPlayer()
     }
+
+    /** Skip the current track: advances the queue if there's a next track, else just stops. */
+    fun skip() {
+        Log.d("MusicPlayer", "⏭️ Skip requested")
+        if (hasNext.value) {
+            playNext()
+        } else {
+            releaseMediaPlayer()
+            _isPlaying.value = false
+            _currentPosition.value = 0f
+        }
+    }
+
+    /**
+     * Music Control Delegation (V.2.2): registers this device once, then polls the backend
+     * for commands a delegate has sent and applies them locally. Runs for the lifetime of the
+     * app process since this service is an app-wide singleton.
+     */
+    private fun startControlDelegationPolling() {
+        serviceScope.launch {
+            while (true) {
+                try {
+                    if (!deviceRegistered) {
+                        val name = "${Build.MANUFACTURER} ${Build.MODEL}"
+                        deviceApiService.registerDevice(localDeviceId, name, "Android", BuildConfig.VERSION_NAME)
+                            .onSuccess { deviceRegistered = true }
+                    }
+
+                    if (deviceRegistered) {
+                        deviceApiService.getPendingCommands(localDeviceId)
+                            .onSuccess { commands ->
+                                commands.forEach { cmd ->
+                                    Log.d("MusicPlayer", "🕹️ Applying delegated command: ${cmd.command} from ${cmd.issuedByName}")
+                                    when (cmd.command) {
+                                        "play" -> play()
+                                        "pause" -> pause()
+                                        "skip" -> skip()
+                                    }
+                                }
+                            }
+                            // Not registered under the currently logged-in user (e.g. logged out,
+                            // or switched accounts on this device) - re-register on the next tick.
+                            .onFailure { deviceRegistered = false }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MusicPlayer", "Control delegation poll failed: ${e.message}")
+                }
+                delay(5000)
+            }
+        }
+    }
     
     /**
      * Get Jamendo audio URL for a track from API
@@ -281,6 +409,7 @@ class MusicPlayerService @Inject constructor(
                 connection.apply {
                     requestMethod = "GET"
                     setRequestProperty("Accept", "application/json")
+                    NetworkConfig.applyDeviceHeaders(this)
                     connectTimeout = 10000
                     readTimeout = 10000
                 }

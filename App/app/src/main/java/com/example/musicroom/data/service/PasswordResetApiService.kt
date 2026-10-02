@@ -34,7 +34,8 @@ class PasswordResetApiService {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
                     doOutput = true
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -121,7 +122,8 @@ class PasswordResetApiService {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
                     doOutput = true
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -215,7 +217,8 @@ class PasswordResetApiService {
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
                     doOutput = true
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }

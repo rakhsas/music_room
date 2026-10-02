@@ -24,36 +24,70 @@ import com.example.musicroom.presentation.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+/** Parses a "yyyy-MM-dd'T'HH:mm:ss..." ISO string into [year, month(0-based), day, hour, minute], or null if unparseable. */
+private fun parseIsoDateTimeParts(isoString: String?): IntArray? {
+    if (isoString.isNullOrBlank()) return null
+    return try {
+        val cal = Calendar.getInstance()
+        for (pattern in listOf("yyyy-MM-dd'T'HH:mm:ssXXX", "yyyy-MM-dd'T'HH:mm:ss")) {
+            val parsed = SimpleDateFormat(pattern, Locale.getDefault()).parse(isoString.take(25)) ?: continue
+            cal.time = parsed
+            return intArrayOf(
+                cal.get(Calendar.YEAR),
+                cal.get(Calendar.MONTH),
+                cal.get(Calendar.DAY_OF_MONTH),
+                cal.get(Calendar.HOUR_OF_DAY),
+                cal.get(Calendar.MINUTE)
+            )
+        }
+        null
+    } catch (e: Exception) {
+        null
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateEventDialog(
     isCreating: Boolean,
     onCreateEvent: (title: String, location: String, description: String?, isPublic: Boolean, startTime: String, endTime: String?) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    dialogTitle: String = "Create New Event",
+    confirmButtonText: String = "Create Event",
+    confirmButtonLoadingText: String = "Creating...",
+    initialTitle: String = "",
+    initialLocation: String = "",
+    initialDescription: String = "",
+    initialIsPublic: Boolean = true,
+    initialStartTime: String? = null,
+    initialEndTime: String? = null
 ) {
-    var eventTitle by remember { mutableStateOf("") }
-    var location by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var isPublic by remember { mutableStateOf(true) }
-    
+    var eventTitle by remember { mutableStateOf(initialTitle) }
+    var location by remember { mutableStateOf(initialLocation) }
+    var description by remember { mutableStateOf(initialDescription) }
+    var isPublic by remember { mutableStateOf(initialIsPublic) }
+
+    val startParts = remember(initialStartTime) { parseIsoDateTimeParts(initialStartTime) }
+    val endParts = remember(initialEndTime) { parseIsoDateTimeParts(initialEndTime) }
+
     // Simple date and time states
     var showStartDateTimePicker by remember { mutableStateOf(false) }
     var showEndDateTimePicker by remember { mutableStateOf(false) }
-    
+
     // Use simple state for date and time
-    var startYear by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
-    var startMonth by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.MONTH)) }
-    var startDay by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) }
-    var startHour by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) }
-    var startMinute by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.MINUTE)) }
-    
-    var endYear by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.YEAR)) }
-    var endMonth by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.MONTH)) }
-    var endDay by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) }
-    var endHour by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.HOUR_OF_DAY) + 2) }
-    var endMinute by remember { mutableIntStateOf(Calendar.getInstance().get(Calendar.MINUTE)) }
-    
-    var hasEndTime by remember { mutableStateOf(false) }
+    var startYear by remember { mutableIntStateOf(startParts?.get(0) ?: Calendar.getInstance().get(Calendar.YEAR)) }
+    var startMonth by remember { mutableIntStateOf(startParts?.get(1) ?: Calendar.getInstance().get(Calendar.MONTH)) }
+    var startDay by remember { mutableIntStateOf(startParts?.get(2) ?: Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) }
+    var startHour by remember { mutableIntStateOf(startParts?.get(3) ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) }
+    var startMinute by remember { mutableIntStateOf(startParts?.get(4) ?: Calendar.getInstance().get(Calendar.MINUTE)) }
+
+    var endYear by remember { mutableIntStateOf(endParts?.get(0) ?: Calendar.getInstance().get(Calendar.YEAR)) }
+    var endMonth by remember { mutableIntStateOf(endParts?.get(1) ?: Calendar.getInstance().get(Calendar.MONTH)) }
+    var endDay by remember { mutableIntStateOf(endParts?.get(2) ?: Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) }
+    var endHour by remember { mutableIntStateOf(endParts?.get(3) ?: (Calendar.getInstance().get(Calendar.HOUR_OF_DAY) + 2)) }
+    var endMinute by remember { mutableIntStateOf(endParts?.get(4) ?: Calendar.getInstance().get(Calendar.MINUTE)) }
+
+    var hasEndTime by remember { mutableStateOf(endParts != null) }
     
     // Format display
     val monthNames = listOf(
@@ -89,7 +123,7 @@ fun CreateEventDialog(
         onDismissRequest = { if (!isCreating) onDismiss() },
         title = {
             Text(
-                text = "Create New Event",
+                text = dialogTitle,
                 color = TextPrimary,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
@@ -410,9 +444,9 @@ fun CreateEventDialog(
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Creating...")
+                    Text(confirmButtonLoadingText)
                 } else {
-                    Text("Create Event")
+                    Text(confirmButtonText)
                 }
             }
         },
@@ -429,8 +463,7 @@ fun CreateEventDialog(
 
     // Start Date Time Picker
     if (showStartDateTimePicker) {
-        SimpleFixedDateTimePicker(
-            title = "Select Start Date & Time",
+        DateTimePickerFlow(
             initialYear = startYear,
             initialMonth = startMonth,
             initialDay = startDay,
@@ -450,8 +483,7 @@ fun CreateEventDialog(
 
     // End Date Time Picker
     if (showEndDateTimePicker) {
-        SimpleFixedDateTimePicker(
-            title = "Select End Date & Time",
+        DateTimePickerFlow(
             initialYear = endYear,
             initialMonth = endMonth,
             initialDay = endDay,
@@ -470,9 +502,10 @@ fun CreateEventDialog(
     }
 }
 
+/** Native Material3 date picker, then time picker, chained into one (year, month, day, hour, minute) result. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SimpleFixedDateTimePicker(
-    title: String,
+private fun DateTimePickerFlow(
     initialYear: Int,
     initialMonth: Int,
     initialDay: Int,
@@ -481,148 +514,64 @@ private fun SimpleFixedDateTimePicker(
     onDateTimeSelected: (Int, Int, Int, Int, Int) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedYear by remember { mutableIntStateOf(initialYear) }
-    var selectedMonth by remember { mutableIntStateOf(initialMonth) }
-    var selectedDay by remember { mutableIntStateOf(initialDay) }
-    var selectedHour by remember { mutableIntStateOf(initialHour) }
-    var selectedMinute by remember { mutableIntStateOf(initialMinute) }
-    
-    val monthNames = listOf(
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December"
+    var pickingTime by remember { mutableStateOf(false) }
+
+    // DatePicker's selectedDateMillis is midnight UTC for the chosen date, so read/write it in UTC
+    // to avoid the local timezone shifting the day by +/-1.
+    val utc = remember { TimeZone.getTimeZone("UTC") }
+    val initialMillis = remember {
+        Calendar.getInstance(utc).apply {
+            clear()
+            set(initialYear, initialMonth, initialDay)
+        }.timeInMillis
+    }
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+    val timePickerState = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = true
     )
-    
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Title
-                Text(
-                    text = title,
-                    color = TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                
-                // Current selection display
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = PrimaryPurple.copy(alpha = 0.1f))
-                ) {
-                    Text(
-                        text = "${monthNames[selectedMonth]} $selectedDay, $selectedYear at ${String.format("%02d:%02d", selectedHour, selectedMinute)}",
-                        modifier = Modifier.padding(12.dp),
-                        color = PrimaryPurple,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                
-                // Year Selection
-                Text("Year", color = TextPrimary, fontWeight = FontWeight.Medium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items((2025..2030).toList()) { year ->
-                        FilterChip(
-                            onClick = { selectedYear = year },
-                            label = { Text(year.toString()) },
-                            selected = selectedYear == year,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryPurple,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
-                }
-                
-                // Month Selection
-                Text("Month", color = TextPrimary, fontWeight = FontWeight.Medium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(monthNames.size) { index ->
-                        FilterChip(
-                            onClick = { selectedMonth = index },
-                            label = { Text(monthNames[index].take(3)) },
-                            selected = selectedMonth == index,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryPurple,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
-                }
-                
-                // Day Selection
-                Text("Day", color = TextPrimary, fontWeight = FontWeight.Medium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items((1..31).toList()) { day ->
-                        FilterChip(
-                            onClick = { selectedDay = day },
-                            label = { Text(day.toString()) },
-                            selected = selectedDay == day,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryPurple,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
-                }
-                
-                // Hour Selection
-                Text("Hour", color = TextPrimary, fontWeight = FontWeight.Medium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items((0..23).toList()) { hour ->
-                        FilterChip(
-                            onClick = { selectedHour = hour },
-                            label = { Text(String.format("%02d", hour)) },
-                            selected = selectedHour == hour,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryPurple,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
-                }
-                
-                // Minute Selection
-                Text("Minute", color = TextPrimary, fontWeight = FontWeight.Medium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items((0..59 step 5).toList()) { minute ->
-                        FilterChip(
-                            onClick = { selectedMinute = minute },
-                            label = { Text(String.format("%02d", minute)) },
-                            selected = selectedMinute == minute,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryPurple,
-                                selectedLabelColor = Color.White
-                            )
-                        )
-                    }
-                }
-                
-                // Action Buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel", color = TextSecondary)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            onDateTimeSelected(selectedYear, selectedMonth, selectedDay, selectedHour, selectedMinute)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
-                    ) {
-                        Text("OK")
-                    }
-                }
+
+    if (!pickingTime) {
+        DatePickerDialog(
+            onDismissRequest = onDismiss,
+            confirmButton = {
+                TextButton(
+                    onClick = { pickingTime = true },
+                    enabled = datePickerState.selectedDateMillis != null
+                ) { Text("Next") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
             }
+        ) {
+            DatePicker(state = datePickerState)
         }
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Select Time") },
+            text = {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TimePicker(state = timePickerState)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val millis = datePickerState.selectedDateMillis ?: initialMillis
+                    val cal = Calendar.getInstance(utc).apply { timeInMillis = millis }
+                    onDateTimeSelected(
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        cal.get(Calendar.DAY_OF_MONTH),
+                        timePickerState.hour,
+                        timePickerState.minute
+                    )
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        )
     }
 }

@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* Colors pulled 1:1 from the mobile app's palette:
+   App/app/src/main/java/com/example/musicroom/presentation/theme/AppColors.kt */
+:root {
+  --color-background: #0a0e27; /* DarkBackground */
+  --color-surface: #1a1f3a; /* DarkSurface */
+  --color-card: #242b4d; /* DarkCard */
+  --color-primary: #00bcd4; /* PrimaryTeal */
+  --color-primary-deep: #0097a7; /* DeepCyan */
+  --color-primary-dark: #006064; /* DarkTeal */
+  --color-accent: #18ffff; /* AccentCyan */
+  --color-soft-blue: #4dd0e1; /* SoftBlue */
+  --color-coral: #ff6b9d; /* CoralPink */
+  --color-purple: #9c27b0; /* PurpleAccent */
+  --color-electric-blue: #2196f3; /* ElectricBlue */
+  --color-error: #cf6679; /* DarkError */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: rgb(255 255 255 / 70%);
+  --color-text-tertiary: rgb(255 255 255 / 50%);
+}
+
+@theme inline {
+  --color-background: var(--color-background);
+  --color-surface: var(--color-surface);
+  --color-card: var(--color-card);
+  --color-primary: var(--color-primary);
+  --color-primary-deep: var(--color-primary-deep);
+  --color-primary-dark: var(--color-primary-dark);
+  --color-accent: var(--color-accent);
+  --color-soft-blue: var(--color-soft-blue);
+  --color-coral: var(--color-coral);
+  --color-purple: var(--color-purple);
+  --color-electric-blue: var(--color-electric-blue);
+  --color-error: var(--color-error);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-tertiary: var(--color-text-tertiary);
+  --font-sans: var(--font-inter);
+
+  /* Aceternity-style Spotlight animation (app/(auth)/layout.tsx). */
+  --animate-spotlight: spotlight 2s ease 0.75s 1 forwards;
+}
+
+@keyframes spotlight {
+  0% {
+    opacity: 0;
+    transform: translate(-72%, -62%) scale(0.5);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -40%) scale(1);
+  }
+}
+
+body {
+  color: var(--color-text-primary);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  /* Fixed low-opacity color washes instead of one flat color - depth without touching contrast. */
+  background-color: var(--color-background);
+  background-image:
+    radial-gradient(ellipse 900px 600px at 10% -10%, rgb(0 188 212 / 12%), transparent 60%),
+    radial-gradient(ellipse 900px 700px at 110% 10%, rgb(156 39 176 / 10%), transparent 60%),
+    radial-gradient(ellipse 800px 600px at 50% 120%, rgb(33 150 243 / 8%), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Frosted-glass surface used by the sidebar, topbar and now-playing bar. */
+.glass {
+  background: rgb(26 31 58 / 55%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Thin, unobtrusive scrollbars for the horizontal card rows - a Spotify signature. */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--color-card);
+  border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -477,12 +477,12 @@ private fun EventItemCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "${event.track_count} tracks",
+                            text = "${event.trackCount} tracks",
                             color = TextSecondary,
                             fontSize = 12.sp
                         )
                         Text(
-                            text = "${event.attendee_count} attending",
+                            text = "${event.attendeeCount} attending",
                             color = TextSecondary,
                             fontSize = 12.sp
                         )

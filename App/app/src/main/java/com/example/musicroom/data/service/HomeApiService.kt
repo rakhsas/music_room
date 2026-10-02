@@ -49,6 +49,7 @@ class HomeApiService @Inject constructor(
                     doInput = true
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "MusicRoom-Android-App")
+                    NetworkConfig.applyDeviceHeaders(this)
                     
                     // Add authentication token if available
                     tokenManager.getToken()?.let { token ->
@@ -94,6 +95,7 @@ class HomeApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("HomeAPI", "❌ Unauthorized - token may be invalid")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     404 -> {
@@ -118,13 +120,13 @@ class HomeApiService @Inject constructor(
      */
     private fun parseHomeResponse(jsonString: String): HomeResponse {
         val json = JSONObject(jsonString)
-        
+
         return HomeResponse(
-            user_playlists = parsePlaylistsSection(json.optJSONObject("user_playlists")),
-            recommended_songs = parseSongsSection(json.optJSONObject("recommended_songs")),
-            popular_songs = parseSongsSection(json.optJSONObject("popular_songs")),
-            recently_listened = parseSongsSection(json.optJSONObject("recently_listened")),
-            popular_artists = parseArtistsSection(json.optJSONObject("popular_artists")),
+            user_playlists = parsePlaylistsSection(json.optJSONObject("userPlaylists")),
+            recommended_songs = parseSongsSection(json.optJSONArray("recommendedSongs")),
+            popular_songs = parseSongsSection(json.optJSONArray("popularSongs")),
+            recently_listened = parseSongsSection(json.optJSONArray("recentlyListened")),
+            popular_artists = parseArtistsSection(json.optJSONArray("popularArtists")),
             events = parseEventsList(json.optJSONArray("events")),
             notifications = parseNotificationsSection(json.optJSONObject("notifications"))
         )
@@ -165,18 +167,10 @@ class HomeApiService @Inject constructor(
         return com.example.musicroom.data.models.PlaylistsSection(headers, playlists)
     }
     
-    private fun parseSongsSection(json: JSONObject?): com.example.musicroom.data.models.SongsSection {
-        if (json == null) {
-            return com.example.musicroom.data.models.SongsSection(
-                headers = null,
-                results = emptyList()
-            )
-        }
-        
-        val headers = parseHeaders(json.optJSONObject("headers"))
-        val resultsArray = json.optJSONArray("results")
+    // Backend returns a bare array of Jamendo tracks here (no {headers, results} wrapper).
+    private fun parseSongsSection(resultsArray: org.json.JSONArray?): com.example.musicroom.data.models.SongsSection {
         val songs = mutableListOf<com.example.musicroom.data.models.Song>()
-        
+
         resultsArray?.let { array ->
             for (i in 0 until array.length()) {
                 val songJson = array.optJSONObject(i)
@@ -209,19 +203,11 @@ class HomeApiService @Inject constructor(
             }
         }
         
-        return com.example.musicroom.data.models.SongsSection(headers, songs)
+        return com.example.musicroom.data.models.SongsSection(null, songs)
     }
-    
-    private fun parseArtistsSection(json: JSONObject?): com.example.musicroom.data.models.ArtistsSection {
-        if (json == null) {
-            return com.example.musicroom.data.models.ArtistsSection(
-                headers = null,
-                results = emptyList()
-            )
-        }
-        
-        val headers = parseHeaders(json.optJSONObject("headers"))
-        val resultsArray = json.optJSONArray("results")
+
+    // Backend returns a bare array here too.
+    private fun parseArtistsSection(resultsArray: org.json.JSONArray?): com.example.musicroom.data.models.ArtistsSection {
         val artists = mutableListOf<com.example.musicroom.data.models.Artist>()
         
         resultsArray?.let { array ->
@@ -243,7 +229,7 @@ class HomeApiService @Inject constructor(
             }
         }
         
-        return com.example.musicroom.data.models.ArtistsSection(headers, artists)
+        return com.example.musicroom.data.models.ArtistsSection(null, artists)
     }
     
     private fun parseEventsList(jsonArray: org.json.JSONArray?): List<com.example.musicroom.data.models.Event> {
@@ -278,14 +264,14 @@ class HomeApiService @Inject constructor(
                             description = json.optString("description"),
                             location = json.optString("location"),
                             organizer = organizer,
-                            attendee_count = json.optInt("attendee_count", 0),
-                            track_count = json.optInt("track_count", 0),
-                            is_public = json.optBoolean("is_public", true),
-                            event_start_time = json.optString("event_start_time"),
-                            event_end_time = json.optString("event_end_time"),
-                            image_url = json.optString("image_url"),
-                            created_at = json.optString("created_at"),
-                            current_user_role = json.optString("current_user_role")
+                            attendeeCount = json.optInt("attendeeCount", 0),
+                            trackCount = json.optInt("trackCount", 0),
+                            is_public = json.optBoolean("isPublic", true),
+                            event_start_time = json.optString("eventStartTime"),
+                            event_end_time = json.optString("eventEndTime"),
+                            image_url = json.optString("imageUrl"),
+                            created_at = json.optString("createdAt"),
+                            current_user_role = json.optString("currentUserRole")
                         )
                     )
                 }
@@ -307,35 +293,35 @@ class HomeApiService @Inject constructor(
         val playlistNotifications = mutableListOf<com.example.musicroom.data.models.PlaylistNotification>()
         
         // Parse event notifications
-        val eventNotificationsArray = json.optJSONArray("event_notifications")
+        val eventNotificationsArray = json.optJSONArray("eventNotifications")
         eventNotificationsArray?.let { array ->
             for (i in 0 until array.length()) {
                 val notificationJson = array.optJSONObject(i)
                 notificationJson?.let {
                     eventNotifications.add(
                         com.example.musicroom.data.models.EventNotification(
-                            event_id = it.optString("event_id"),
-                            inviter_name = it.optString("inviter_name"),
+                            event_id = it.optString("eventId"),
+                            inviter_name = it.optString("inviterName"),
                             message = it.optString("message"),
-                            event_title = it.optString("event_title")
+                            event_title = it.optString("eventTitle")
                         )
                     )
                 }
             }
         }
-        
+
         // Parse playlist notifications
-        val playlistNotificationsArray = json.optJSONArray("playlist_notifications")
+        val playlistNotificationsArray = json.optJSONArray("playlistNotifications")
         playlistNotificationsArray?.let { array ->
             for (i in 0 until array.length()) {
                 val notificationJson = array.optJSONObject(i)
                 notificationJson?.let {
                     playlistNotifications.add(
                         com.example.musicroom.data.models.PlaylistNotification(
-                            playlist_id = it.optString("playlist_id"),
-                            inviter_name = it.optString("inviter_name"),
+                            playlist_id = it.optString("playlistId"),
+                            inviter_name = it.optString("inviterName"),
                             message = it.optString("message"),
-                            playlist_name = it.optString("playlist_name")
+                            playlist_name = it.optString("playlistName")
                         )
                     )
                 }

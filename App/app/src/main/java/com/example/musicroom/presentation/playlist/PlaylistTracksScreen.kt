@@ -40,9 +40,12 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.musicroom.data.models.Track
+import com.example.musicroom.data.service.MusicPlayerService
 import com.example.musicroom.data.service.PlaylistApiService
+import com.example.musicroom.data.service.PlaylistRealtimeClient
 import com.example.musicroom.data.service.PlaylistWithTracks
 import com.example.musicroom.data.service.PlaylistTrackDetails
+import okhttp3.WebSocket
 import com.example.musicroom.presentation.theme.*
 import com.example.musicroom.presentation.player.InviteUserDialog
 import com.example.musicroom.R
@@ -68,12 +71,32 @@ sealed class PlaylistTracksUiState {
 // ViewModel
 @HiltViewModel
 class PlaylistTracksViewModel @Inject constructor(
-    private val playlistApiService: PlaylistApiService
+    private val playlistApiService: PlaylistApiService,
+    private val realtimeClient: PlaylistRealtimeClient,
+    private val musicPlayerService: MusicPlayerService
 ) : ViewModel() {
-    
+
     private val _uiState = MutableStateFlow<PlaylistTracksUiState>(PlaylistTracksUiState.Loading)
     val uiState: StateFlow<PlaylistTracksUiState> = _uiState.asStateFlow()
-    
+
+    private var realtimeSocket: WebSocket? = null
+
+    /** Live updates from other editors (V.2.3): any event just triggers a fresh fetch. */
+    fun connectRealtime(playlistId: String) {
+        if (realtimeSocket != null) return
+        realtimeSocket = realtimeClient.connect(playlistId) { loadPlaylistTracks(playlistId) }
+    }
+
+    fun disconnectRealtime() {
+        realtimeSocket?.close(1000, "Screen closed")
+        realtimeSocket = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        disconnectRealtime()
+    }
+
     fun loadPlaylistTracks(playlistId: String) {
         viewModelScope.launch {
             Log.d("PlaylistTracksVM", "🎵 Loading tracks for playlist: $playlistId")
@@ -110,6 +133,16 @@ class PlaylistTracksViewModel @Inject constructor(
         }
     }
 
+    fun inviteUser(playlistId: String, username: String, onSuccess: (String) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            playlistApiService.inviteUserToPlaylist(playlistId, username).fold(
+                onSuccess = { message -> onSuccess(message) },
+                onFailure = {
+                    exception -> onError(exception.message ?: "Failed to invite user") }
+            )
+        }
+    }
+
     fun deletePlaylist(playlistId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch {
             playlistApiService.deletePlaylist(playlistId).fold(
@@ -121,6 +154,11 @@ class PlaylistTracksViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    /** Starts playback of the clicked track, queuing the rest of the playlist for Previous/Next. */
+    fun playQueue(tracks: List<Track>, startIndex: Int) {
+        musicPlayerService.setQueueAndPlay(tracks, startIndex)
     }
 }
 
@@ -146,7 +184,16 @@ fun PlaylistTracksScreen(
             Log.e("PlaylistTracksScreen", "❌ Error loading playlist tracks", e)
         }
     }
-    
+
+    // Real-time multi-user editing (V.2.3): live updates while this screen is open
+    DisposableEffect(playlistId) {
+        viewModel.connectRealtime(playlistId)
+        onDispose { viewModel.disconnectRealtime() }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -181,19 +228,22 @@ fun PlaylistTracksScreen(
                 }
             },
             actions = {
-                // Add invite button for playlist owners
+                // Add invite button for playlist owners - only private playlists can be invited to,
+                // the backend rejects invites on public ones (those are joined via "Follow" instead)
                 if (uiState is PlaylistTracksUiState.Success) {
                     val currentPlaylist = (uiState as PlaylistTracksUiState.Success).playlistWithTracks
-                    IconButton(
-                        onClick = { showInviteDialog = true }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonAdd,
-                            contentDescription = "Invite Users",
-                            tint = PrimaryPurple
-                        )
+                    if (!currentPlaylist.playlist_info.is_public) {
+                        IconButton(
+                            onClick = { showInviteDialog = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PersonAdd,
+                                contentDescription = "Invite Users",
+                                tint = PrimaryPurple
+                            )
+                        }
                     }
-                    
+
                     // Delete playlist button
                     IconButton(
                         onClick = { showDeleteDialog = true }
@@ -258,17 +308,10 @@ fun PlaylistTracksScreen(
                     playlistWithTracks = currentState.playlistWithTracks,
                     onTrackClick = { track ->
                         try {
-                            // Convert PlaylistTrackDetails to Track and navigate
-                            val convertedTrack = Track(
-                                id = track.id,
-                                title = track.name,
-                                artist = track.artist_name,
-                                thumbnailUrl = track.image.ifEmpty { track.album_image },
-                                duration = formatDuration(track.duration),
-                                channelTitle = track.album_name,
-                                description = track.audio // Store audio URL
-                            )
-                            navigateToNowPlaying(navController, convertedTrack)
+                            val queue = currentState.playlistWithTracks.tracks.map { it.toTrack() }
+                            val clickedIndex = currentState.playlistWithTracks.tracks.indexOf(track).coerceAtLeast(0)
+                            viewModel.playQueue(queue, clickedIndex)
+                            navigateToNowPlaying(navController, queue[clickedIndex])
                         } catch (e: Exception) {
                             Log.e("PlaylistTracksScreen", "❌ Error playing track", e)
                         }
@@ -347,9 +390,19 @@ fun PlaylistTracksScreen(
             },
             onDismiss = { showInviteDialog = false },
             onInvite = { username ->
-                // TODO: Implement invite functionality
                 Log.d("PlaylistTracksScreen", "🎯 Inviting user: $username to playlist: $playlistId")
-                showInviteDialog = false
+                viewModel.inviteUser(
+                    playlistId = playlistId,
+                    username = username,
+                    onSuccess = { message ->
+                        errorMessage = message
+                        showInviteDialog = false
+                    },
+                    onError = { error ->
+                        errorMessage = error
+                        showInviteDialog = false
+                    }
+                )
             }
         )
     }
@@ -409,18 +462,24 @@ fun PlaylistTracksScreen(
             kotlinx.coroutines.delay(3000)
             errorMessage = null
         }
-        
+
         Snackbar(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(16.dp),
             action = {
                 TextButton(onClick = { errorMessage = null }) {
-                    Text("Dismiss", color = PrimaryPurple)
+                    Text("Dismiss", color = Color.White)
                 }
             },
-            containerColor = Color.Red.copy(alpha = 0.9f)
+            actionOnNewLine = true,
+            containerColor = Color.Red.copy(alpha = 0.9f),
+            contentColor = Color.White
         ) {
-            Text(text = error, color = Color.White)
+            Text(text = error, color = Color.White, fontSize = 14.sp)
         }
+    }
     }
 }
 
@@ -649,3 +708,13 @@ fun formatDuration(seconds: Int): String {
     val remainingSeconds = seconds % 60
     return String.format("%d:%02d", minutes, remainingSeconds)
 }
+
+fun PlaylistTrackDetails.toTrack(): Track = Track(
+    id = id,
+    title = name,
+    artist = artist_name,
+    thumbnailUrl = image.ifEmpty { album_image },
+    duration = formatDuration(duration),
+    channelTitle = album_name,
+    description = audio // Store audio URL
+)

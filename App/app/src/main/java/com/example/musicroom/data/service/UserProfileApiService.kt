@@ -40,13 +40,15 @@ class UserProfileApiService @Inject constructor(
                     // Add authorization header
                     val token = tokenManager.getToken()
                     if (token != null) {
+
                         setRequestProperty("Authorization", "Bearer $token")
-                        Log.d("UserProfileAPI", "🔑 Added authorization header")
+                        Log.d("UserProfileAPI", "🔑 Added authorization header" + token)
                     } else {
                         Log.w("UserProfileAPI", "⚠️ No authentication token available")
                         return@withContext Result.failure(Exception("Authentication required"))
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -83,6 +85,7 @@ class UserProfileApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("UserProfileAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     else -> {
@@ -107,38 +110,39 @@ class UserProfileApiService @Inject constructor(
                 Log.d("UserProfileAPI", "📝 Updating user profile")
                 
                 val requestBody = JSONObject().apply {
-                    request.name?.let { put("name", it) }
+                    request.fullName?.let { put("full_name", it) }
+                    request.userName?.let { put("userName", it) }
                     request.bio?.let { put("bio", it) }
                     request.dateOfBirth?.let { put("date_of_birth", it) }
                     request.phoneNumber?.let { put("phone_number", it) }
                     request.profilePrivacy?.let { put("profile_privacy", it) }
                     request.emailPrivacy?.let { put("email_privacy", it) }
                     request.phonePrivacy?.let { put("phone_privacy", it) }
-                    
+
                     request.musicPreferences?.let { prefs ->
                         val prefsArray = JSONArray()
                         prefs.forEach { prefsArray.put(it) }
                         put("music_preferences", prefsArray)
                     }
-                    
+
                     request.likedArtists?.let { artists ->
                         val artistsArray = JSONArray()
                         artists.forEach { artistsArray.put(it) }
                         put("liked_artists", artistsArray)
                     }
-                    
+
                     request.likedAlbums?.let { albums ->
                         val albumsArray = JSONArray()
                         albums.forEach { albumsArray.put(it) }
                         put("liked_albums", albumsArray)
                     }
-                    
+
                     request.likedSongs?.let { songs ->
                         val songsArray = JSONArray()
                         songs.forEach { songsArray.put(it) }
                         put("liked_songs", songsArray)
                     }
-                    
+
                     request.genres?.let { genres ->
                         val genresArray = JSONArray()
                         genres.forEach { genresArray.put(it) }
@@ -162,7 +166,8 @@ class UserProfileApiService @Inject constructor(
                     } else {
                         return@withContext Result.failure(Exception("Authentication required"))
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -215,6 +220,7 @@ class UserProfileApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("UserProfileAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     else -> {
@@ -234,51 +240,51 @@ class UserProfileApiService @Inject constructor(
      * Parse user profile response from JSON
      */
     private fun parseUserProfileResponse(responseText: String): UserProfileResponse {
+        Log.e("PARSE USER PROFILE", responseText)
         try {
             val json = JSONObject(responseText)
             
-            // Parse music preferences
-            val musicPrefsJson = json.optJSONObject("music_preferences")
+            // Parse music preferences (backend stores either a dict of genre->weight or a plain list)
+            val musicPrefsJson = json.optJSONObject("musicPreferences")
             val musicPreferences = if (musicPrefsJson != null) {
                 val keys = musicPrefsJson.keys()
                 val prefs = mutableListOf<String>()
                 while (keys.hasNext()) {
-                    val key = keys.next()
-                    prefs.add(key)
+                    prefs.add(keys.next())
                 }
                 prefs
             } else {
-                emptyList()
+                parseJsonArray(json.optJSONArray("musicPreferences"))
             }
-            
+
             // Parse arrays
-            val likedArtists = parseJsonArray(json.optJSONArray("liked_artists"))
-            val likedAlbums = parseJsonArray(json.optJSONArray("liked_albums"))
-            val likedSongs = parseJsonArray(json.optJSONArray("liked_songs"))
+            val likedArtists = parseJsonArray(json.optJSONArray("likedArtists"))
+            val likedAlbums = parseJsonArray(json.optJSONArray("likedAlbums"))
+            val likedSongs = parseJsonArray(json.optJSONArray("likedSongs"))
             val genres = parseJsonArray(json.optJSONArray("genres"))
-            
+
             return UserProfileResponse(
                 id = json.optInt("id"),
                 email = json.optString("email", ""),
-                name = json.optString("name", ""),
+                fullName = json.optString("fullName", ""),
+                userName = json.optString("userName").takeIf { it != "null" } ?: "",
                 avatar = json.optString("avatar", ""),
                 bio = json.optString("bio", ""),
-                dateOfBirth = json.optString("date_of_birth").takeIf { it != "null" },
-                phoneNumber = json.optString("phone_number", ""),
-                profilePrivacy = json.optString("profile_privacy", "public"),
-                emailPrivacy = json.optString("email_privacy", "friends"),
-                phonePrivacy = json.optString("phone_privacy", "private"),
-                facebookId = json.optString("facebook_id").takeIf { it != "null" },
-                googleId = json.optString("google_id").takeIf { it != "null" },
-                subscriptionType = json.optString("subscription_type", "free"),
-                isPremium = json.optBoolean("is_premium", false),
-                isSubscribed = json.optBoolean("is_subscribed", false),
+                dateOfBirth = json.optString("dateOfBirth").takeIf { it != "null" },
+                phoneNumber = json.optString("phoneNumber", ""),
+                profilePrivacy = json.optString("profilePrivacy", "public"),
+                emailPrivacy = json.optString("emailPrivacy", "friends"),
+                phonePrivacy = json.optString("phonePrivacy", "private"),
+                googleId = json.optString("googleId").takeIf { it != "null" },
+                subscriptionType = json.optString("subscriptionType", "free"),
+                isPremium = json.optBoolean("isPremium", false),
+                isSubscribed = json.optBoolean("isSubscribed", false),
                 musicPreferences = musicPreferences,
                 likedArtists = likedArtists,
                 likedAlbums = likedAlbums,
                 likedSongs = likedSongs,
                 genres = genres,
-                createdAt = json.optString("created_at", "")
+                createdAt = json.optString("createdAt", "")
             )
         } catch (e: Exception) {
             Log.e("UserProfileAPI", "❌ Error parsing user profile JSON", e)
@@ -306,7 +312,8 @@ class UserProfileApiService @Inject constructor(
 data class UserProfileResponse(
     val id: Int,
     val email: String,
-    val name: String,
+    val fullName: String,
+    val userName: String,
     val avatar: String,
     val bio: String,
     val dateOfBirth: String?,
@@ -314,7 +321,6 @@ data class UserProfileResponse(
     val profilePrivacy: String,
     val emailPrivacy: String,
     val phonePrivacy: String,
-    val facebookId: String?,
     val googleId: String?,
     val subscriptionType: String,
     val isPremium: Boolean,
@@ -328,7 +334,8 @@ data class UserProfileResponse(
 )
 
 data class UpdateUserProfileRequest(
-    val name: String? = null,
+    val fullName: String? = null,
+    val userName: String? = null,
     val bio: String? = null,
     val dateOfBirth: String? = null, // Format: YYYY-MM-DD
     val phoneNumber: String? = null,

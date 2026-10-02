@@ -63,7 +63,7 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "BASE_URL", "\"http://10.32.130.109:8000\"")
+            buildConfigField("String", "BASE_URL", "\"http://172.26.79.8:8000\"")
             buildConfigField("Boolean", "IS_DEBUG", "true")
         }
         release {
@@ -184,6 +184,7 @@ dependencies {
     // Retrofit dependencies
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     
     // ExoPlayer for music playback
@@ -195,7 +196,7 @@ dependencies {
     // Google Sign-In
     implementation(libs.play.services.auth)
     implementation("com.google.android.gms:play-services-auth:21.3.0")
-    
+
     // For JSON parsing (if not already added)
     implementation("org.json:json:20230227")
     

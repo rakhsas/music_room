@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres123
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # test/global-setup.ts creates this database; no .env exists in CI.
+      TEST_DATABASE_URL: postgresql://postgres:postgres123@localhost:5432/musicroom_test
+    defaults:
+      run:
+        working-directory: Backend-Nest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Backend-Nest/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+      - run: npm test
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run build
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: App
+    steps:
+      - uses: actions/checkout@v4
+      # google-services.json is kept out of git; add its contents as the GOOGLE_SERVICES_JSON
+      # repository secret to enable this job. Without it the job is skipped, not failed.
+      - name: Restore google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then echo "SKIP_ANDROID=1" >> "$GITHUB_ENV"; exit 0; fi
+          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+      - uses: actions/setup-java@v4
+        if: env.SKIP_ANDROID != '1'
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - if: env.SKIP_ANDROID != '1'
+        # local.properties is committed with a Windows sdk.dir; CI uses ANDROID_HOME instead.
+        run: rm -f local.properties && chmod +x gradlew && ./gradlew testDebugUnitTest
