@@ -6,7 +6,8 @@ package com.example.musicroom.data.models
 data class UserProfile(
     val id: String,
     val email: String,
-    val name: String,
+    val fullName: String,
+    val userName: String,
     val avatar: String,
     val bio: String,
     val dateOfBirth: String?,

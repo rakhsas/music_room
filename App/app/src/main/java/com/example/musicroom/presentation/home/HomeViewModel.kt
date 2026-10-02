@@ -3,9 +3,11 @@ package com.example.musicroom.presentation.home
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.musicroom.data.auth.TokenManager
 import com.example.musicroom.data.models.HomeResponse
 import com.example.musicroom.data.service.HomeApiService
 import com.example.musicroom.data.service.EventsApiService
+import com.example.musicroom.data.service.PlaylistApiService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,15 +18,17 @@ import javax.inject.Inject
 sealed class HomeUiState {
     object Loading : HomeUiState()
     data class Success(val data: HomeResponse) : HomeUiState()
-    data class Error(val message: String) : HomeUiState()
+    data class Error(val message: String, val isAuthError: Boolean = false) : HomeUiState()
 }
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val homeApiService: HomeApiService,
-    private val eventsApiService: EventsApiService
+    private val eventsApiService: EventsApiService,
+    private val playlistApiService: PlaylistApiService,
+    private val tokenManager: TokenManager
 ) : ViewModel() {
-    
+
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     
@@ -60,9 +64,11 @@ class HomeViewModel @Inject constructor(
                 } else {
                     val error = result.exceptionOrNull()?.message ?: "Unknown error"
                     Log.e("HomeViewModel", "❌ Failed to load home data: $error")
-                    _uiState.value = HomeUiState.Error(error)
+                    val isAuthError = error.contains("Authentication required", ignoreCase = true)
+                    if (isAuthError) tokenManager.clearTokens()
+                    _uiState.value = HomeUiState.Error(error, isAuthError)
                 }
-                
+
             } catch (e: Exception) {
                 Log.e("HomeViewModel", "❌ Unexpected error loading home data: ${e.message}")
                 _uiState.value = HomeUiState.Error("An unexpected error occurred")
@@ -140,11 +146,15 @@ class HomeViewModel @Inject constructor(
             try {
                 _actionInProgress.value = true
                 Log.d("HomeViewModel", "✅ Accepting playlist invitation for playlist: $playlistId")
-                
-                // TODO: Implement playlist invitation acceptance API call
-                // For now, just reload home data
+
+                val result = playlistApiService.acceptPlaylistInvitation(playlistId)
+                if (result.isFailure) {
+                    Log.e("HomeViewModel", "❌ Failed to accept playlist invitation: ${result.exceptionOrNull()?.message}")
+                }
+
+                // Reload home data to refresh notifications
                 loadHomeData()
-                
+
             } catch (e: Exception) {
                 Log.e("HomeViewModel", "❌ Error accepting playlist invitation: ${e.message}")
             } finally {
@@ -161,11 +171,15 @@ class HomeViewModel @Inject constructor(
             try {
                 _actionInProgress.value = true
                 Log.d("HomeViewModel", "❌ Declining playlist invitation for playlist: $playlistId from $inviterName")
-                
-                // TODO: Implement playlist invitation decline API call
-                // For now, just reload home data
+
+                val result = playlistApiService.declinePlaylistInvitation(playlistId)
+                if (result.isFailure) {
+                    Log.e("HomeViewModel", "❌ Failed to decline playlist invitation: ${result.exceptionOrNull()?.message}")
+                }
+
+                // Reload home data to refresh notifications
                 loadHomeData()
-                
+
             } catch (e: Exception) {
                 Log.e("HomeViewModel", "❌ Error declining playlist invitation: ${e.message}")
             } finally {

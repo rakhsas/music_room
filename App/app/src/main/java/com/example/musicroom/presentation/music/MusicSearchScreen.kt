@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -118,7 +119,7 @@ fun MusicSearchScreen(
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(successState.tracks) { track ->
+                    itemsIndexed(successState.tracks) { index, track ->
                         TrackItem(
                             track = track,
                             onTrackClick = { clickedTrack ->
@@ -127,7 +128,9 @@ fun MusicSearchScreen(
                                     Log.d("MusicSearch", "🎵 Track clicked: ${clickedTrack.title}")
                                     Log.d("MusicSearch", "🎵 Track ID: ${clickedTrack.id}")
                                     Log.d("MusicSearch", "🎵 Track audio: ${clickedTrack.description}")
-                                    
+
+                                    viewModel.playQueue(successState.tracks, index)
+
                                     val encodedTitle = java.net.URLEncoder.encode(clickedTrack.title, "UTF-8")
                                     val encodedArtist = java.net.URLEncoder.encode(clickedTrack.artist, "UTF-8")
                                     val encodedThumbnailUrl = java.net.URLEncoder.encode(clickedTrack.thumbnailUrl, "UTF-8")

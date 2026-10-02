@@ -35,6 +35,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.musicroom.data.models.Track
 import com.example.musicroom.data.repository.MusicRepository
+import com.example.musicroom.data.service.MusicPlayerService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,8 +45,14 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MusicSearchViewModel @Inject constructor(
-    private val musicRepository: MusicRepository
+    private val musicRepository: MusicRepository,
+    private val musicPlayerService: MusicPlayerService
 ) : ViewModel() {
+
+    /** Starts playback of the clicked track, queuing the rest of the results for Previous/Next. */
+    fun playQueue(tracks: List<Track>, startIndex: Int) {
+        musicPlayerService.setQueueAndPlay(tracks, startIndex)
+    }
 
     // ============================================================================
     // STATE MANAGEMENT - UI state flow for reactive programming

@@ -1,13 +1,13 @@
 package com.example.musicroom.presentation.auth
 
+import android.content.Intent
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.musicroom.data.auth.GoogleAuthUiClient
 import com.example.musicroom.data.service.AuthApiService
 import com.example.musicroom.data.service.LoginResponse
 import com.example.musicroom.data.service.SignUpResponse
-import com.example.musicroom.data.service.ForgotPasswordResponse
-import com.example.musicroom.data.service.GoogleSignInResponse
 import com.example.musicroom.data.auth.TokenManager  // Fixed import - changed from data.service to data.auth
 import com.example.musicroom.data.service.PasswordResetApiService
 import com.example.musicroom.data.service.PasswordResetResponse
@@ -23,7 +23,8 @@ import javax.inject.Inject
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authApiService: AuthApiService,
-    private val tokenManager: TokenManager
+    private val tokenManager: TokenManager,
+    private val googleAuthUiClient: GoogleAuthUiClient
 ) : ViewModel() {
 
     // Create password reset service directly to avoid Hilt issues
@@ -76,13 +77,13 @@ class AuthViewModel @Inject constructor(
      * EMAIL/PASSWORD SIGNUP
      * Real logic with mock data - ready for backend integration
      */
-    fun signUp(email: String, password: String, name: String) {
+    fun signUp(email: String, password: String, fullName: String, username: String) {
         viewModelScope.launch {
             try {
                 _authState.value = AuthState.Loading
                 Log.d("AuthViewModel", "📝 Starting signup for: $email")
-                
-                val result = authApiService.signUp(email, password, name)
+
+                val result = authApiService.signUp(email, password, fullName, username)
                 
                 if (result.isSuccess) {
                     val response = result.getOrNull()!!
@@ -107,57 +108,39 @@ class AuthViewModel @Inject constructor(
     }
     
     /**
-     * FORGOT PASSWORD
-     * Real logic with mock data - ready for backend integration
-     */
-    fun forgotPassword(email: String) {
-        viewModelScope.launch {
-            try {
-                _authState.value = AuthState.Loading
-                Log.d("AuthViewModel", "🔄 Starting password reset for: $email")
-                
-                val result = authApiService.forgotPassword(email)
-                
-                if (result.isSuccess) {
-                    val response = result.getOrNull()!!
-                    if (response.success) {
-                        Log.d("AuthViewModel", "✅ Password reset email sent!")
-                        _authState.value = AuthState.ForgotPasswordSuccess(response)
-                    } else {
-                        Log.d("AuthViewModel", "❌ Password reset failed: ${response.message}")
-                        _authState.value = AuthState.Error(response.message)
-                    }
-                } else {
-                    val error = result.exceptionOrNull()?.message ?: "Network error"
-                    Log.e("AuthViewModel", "❌ Password reset error: $error")
-                    _authState.value = AuthState.Error(error)
-                }
-                
-            } catch (e: Exception) {
-                Log.e("AuthViewModel", "❌ Unexpected error: ${e.message}")
-                _authState.value = AuthState.Error("An unexpected error occurred")
-            }
-        }
-    }
-    
-    /**
      * GOOGLE SIGN-IN
-     * Real logic with mock data - ready for backend integration
-     * Call this method after successful Google authentication on client side
+     * Launches the real Google Sign-In SDK flow via GoogleAuthUiClient.
      */
-    fun signInWithGoogle(idToken: String, accessToken: String? = null) {
+    fun getGoogleSignInIntent() = googleAuthUiClient.getSignInIntent()
+
+    /** Call with the Intent returned by the Google Sign-In activity result. */
+    fun handleGoogleSignInResult(data: Intent?) {
+        val result = googleAuthUiClient.signInWithIntent(data)
+        val idToken = result.data?.idToken
+
+        if (result.errorMessage != null || idToken == null) {
+            Log.e("AuthViewModel", "❌ Google sign-in error: ${result.errorMessage}")
+            _authState.value = AuthState.Error(result.errorMessage ?: "Google sign-in failed")
+            return
+        }
+
+        signInWithGoogle(idToken)
+    }
+
+    private fun signInWithGoogle(idToken: String) {
         viewModelScope.launch {
             try {
                 _authState.value = AuthState.Loading
                 Log.d("AuthViewModel", "🔗 Starting Google sign-in")
-                
-                val result = authApiService.signInWithGoogle(idToken, accessToken)
-                
+
+                val result = authApiService.signInWithGoogle(idToken)
+
                 if (result.isSuccess) {
                     val response = result.getOrNull()!!
                     if (response.success) {
                         Log.d("AuthViewModel", "✅ Google sign-in successful!")
-                        _authState.value = AuthState.GoogleSignInSuccess(response)
+                        response.token?.let { tokenManager.saveToken(it) }
+                        _authState.value = AuthState.LoginSuccess(response)
                     } else {
                         Log.d("AuthViewModel", "❌ Google sign-in failed: ${response.message}")
                         _authState.value = AuthState.Error(response.message)
@@ -167,14 +150,14 @@ class AuthViewModel @Inject constructor(
                     Log.e("AuthViewModel", "❌ Google sign-in error: $error")
                     _authState.value = AuthState.Error(error)
                 }
-                
+
             } catch (e: Exception) {
                 Log.e("AuthViewModel", "❌ Unexpected error: ${e.message}")
                 _authState.value = AuthState.Error("An unexpected error occurred")
             }
         }
     }
-    
+
     /**
      * Request password reset OTP
      */
@@ -259,8 +242,6 @@ sealed class AuthState {
     object Loading : AuthState()
     data class LoginSuccess(val response: LoginResponse) : AuthState()
     data class SignUpSuccess(val response: SignUpResponse) : AuthState()
-    data class ForgotPasswordSuccess(val response: ForgotPasswordResponse) : AuthState()
-    data class GoogleSignInSuccess(val response: GoogleSignInResponse) : AuthState()
     data class Error(val message: String) : AuthState()
     
     // Password reset states

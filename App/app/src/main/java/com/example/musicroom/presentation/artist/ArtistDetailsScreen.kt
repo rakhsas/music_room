@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -92,11 +93,11 @@ fun ArtistDetailsScreen(
                         ArtistHeader(
                             artist = successState.artist,
                             onPlayAllClick = {
-                                // Play first song if available
+                                // Play first song if available, queuing the rest
                                 if (successState.songs.isNotEmpty()) {
-                                    val firstSong = successState.songs.first()
-                                    val track = songToTrack(firstSong)
-                                    navigateToNowPlaying(navController, track)
+                                    val queue = successState.songs.map { songToTrack(it) }
+                                    viewModel.playQueue(queue, 0)
+                                    navigateToNowPlaying(navController, queue[0])
                                 }
                             }
                         )
@@ -114,12 +115,13 @@ fun ArtistDetailsScreen(
                     }
                     
                     // Songs List
-                    items(successState.songs) { song ->
+                    itemsIndexed(successState.songs) { index, song ->
                         ArtistSongItem(
                             song = song,
                             onSongClick = {
-                                val track = songToTrack(song)
-                                navigateToNowPlaying(navController, track)
+                                val queue = successState.songs.map { songToTrack(it) }
+                                viewModel.playQueue(queue, index)
+                                navigateToNowPlaying(navController, queue[index])
                             }
                         )
                     }

@@ -28,7 +28,8 @@ class UserProfileRepository @Inject constructor(
     }
     
     suspend fun updateUserProfile(
-        name: String? = null,
+        fullName: String? = null,
+        userName: String? = null,
         bio: String? = null,
         dateOfBirth: String? = null,
         phoneNumber: String? = null,
@@ -43,7 +44,8 @@ class UserProfileRepository @Inject constructor(
     ): Result<UserProfile> {
         return try {
             val request = UpdateUserProfileRequest(
-                name = name,
+                fullName = fullName,
+                userName = userName,
                 bio = bio,
                 dateOfBirth = dateOfBirth,
                 phoneNumber = phoneNumber,
@@ -74,7 +76,8 @@ class UserProfileRepository @Inject constructor(
         return UserProfile(
             id = apiResponse.id.toString(),
             email = apiResponse.email,
-            name = apiResponse.name,
+            fullName = apiResponse.fullName,
+            userName = apiResponse.userName,
             avatar = apiResponse.avatar,
             bio = apiResponse.bio,
             dateOfBirth = apiResponse.dateOfBirth,

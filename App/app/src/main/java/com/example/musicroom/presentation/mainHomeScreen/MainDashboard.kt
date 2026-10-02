@@ -28,7 +28,7 @@ import com.example.musicroom.presentation.room.*
 import com.example.musicroom.presentation.playlist.PlaylistDetailsScreen
 import com.example.musicroom.presentation.playlists.PublicPlaylistsScreen
 import com.example.musicroom.presentation.home.DashboardScreen
-import com.example.musicroom.presentation.player.NowPlayingScreen
+//import com.example.musicroom.presentation.player.NowPlayingScreen
 
 /**
  * ========================================================================================

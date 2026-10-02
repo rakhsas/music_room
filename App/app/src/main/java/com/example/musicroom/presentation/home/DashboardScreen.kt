@@ -95,10 +95,18 @@ fun DashboardScreen(
             )
         }
         is HomeUiState.Error -> {
-            ModernErrorScreen(
-                message = currentState.message,
-                onRetry = { viewModel.loadHomeData() }
-            )
+            if (currentState.isAuthError) {
+                LaunchedEffect(currentState) {
+                    navController.navigate("auth") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            } else {
+                ModernErrorScreen(
+                    message = currentState.message,
+                    onRetry = { viewModel.loadHomeData() }
+                )
+            }
         }
     }
 }
@@ -188,6 +196,8 @@ private fun DashboardContent(
     onAcceptPlaylistInvitation: (String) -> Unit,
     actionInProgress: Boolean
 ) {
+    val mediaPlayerViewModel: com.example.musicroom.presentation.player.MediaPlayerViewModel = hiltViewModel()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -242,18 +252,13 @@ private fun DashboardContent(
                         title = "Recommended for You",
                         songs = homeData.recommended_songs.results,
                         onSongClick = { song ->
-                            val track = Track(
-                                id = song.id,
-                                title = song.name,
-                                artist = song.artist_name,
-                                thumbnailUrl = song.image ?: song.album_image ?: "",
-                                duration = formatDuration(song.duration),
-                                channelTitle = song.album_name,
-                                description = song.audio
-                            )
-                            
+                            val queue = homeData.recommended_songs.results.map { it.toTrack() }
+                            val index = homeData.recommended_songs.results.indexOf(song).coerceAtLeast(0)
+                            val track = queue[index]
+
                             Log.d("DashboardScreen", "🎵 Playing: ${song.name}")
-                            
+                            mediaPlayerViewModel.playQueue(queue, index)
+
                             val encodedTitle = java.net.URLEncoder.encode(track.title, "UTF-8")
                             val encodedArtist = java.net.URLEncoder.encode(track.artist, "UTF-8")
                             val encodedThumbnailUrl = java.net.URLEncoder.encode(track.thumbnailUrl, "UTF-8")
@@ -272,16 +277,12 @@ private fun DashboardContent(
                         title = "Popular Now",
                         songs = homeData.popular_songs.results,
                         onSongClick = { song ->
-                            val track = Track(
-                                id = song.id,
-                                title = song.name,
-                                artist = song.artist_name,
-                                thumbnailUrl = song.image ?: song.album_image ?: "",
-                                duration = formatDuration(song.duration),
-                                channelTitle = song.album_name,
-                                description = song.audio
-                            )
-                            
+                            val queue = homeData.popular_songs.results.map { it.toTrack() }
+                            val index = homeData.popular_songs.results.indexOf(song).coerceAtLeast(0)
+                            val track = queue[index]
+
+                            mediaPlayerViewModel.playQueue(queue, index)
+
                             val encodedTitle = java.net.URLEncoder.encode(track.title, "UTF-8")
                             val encodedArtist = java.net.URLEncoder.encode(track.artist, "UTF-8")
                             val encodedThumbnailUrl = java.net.URLEncoder.encode(track.thumbnailUrl, "UTF-8")
@@ -344,21 +345,33 @@ private fun ModernWelcomeHeader(navController: NavController) {
         ) {
             Column {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Default.MusicNote,
-                        contentDescription = "Music",
-                        tint = Color.White,
-                        modifier = Modifier.size(32.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Music Room",
-                        color = Color.White,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.MusicNote,
+                            contentDescription = "Music",
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Music Room",
+                            color = Color.White,
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    IconButton(onClick = { navController.navigate("device_control") }) {
+                        Icon(
+                            Icons.Default.Speaker,
+                            contentDescription = "Music Control Delegation",
+                            tint = Color.White
+                        )
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -806,7 +819,7 @@ private fun ModernEventCard(
             )
             
             Text(
-                text = "${event.attendee_count} attendees",
+                text = "${event.attendeeCount} attendees",
                 color = PrimaryTeal,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
@@ -820,4 +833,14 @@ private fun formatDuration(seconds: Int): String {
     val remainingSeconds = seconds % 60
     return String.format("%d:%02d", minutes, remainingSeconds)
 }
+
+private fun Song.toTrack(): Track = Track(
+    id = id,
+    title = name,
+    artist = artist_name,
+    thumbnailUrl = image ?: album_image ?: "",
+    duration = formatDuration(duration),
+    channelTitle = album_name,
+    description = audio
+)
 

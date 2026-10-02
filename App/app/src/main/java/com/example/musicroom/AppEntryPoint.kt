@@ -51,13 +51,18 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.example.musicroom.data.auth.TokenManager
+import javax.inject.Inject
 import androidx.navigation.compose.composable
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
@@ -87,6 +92,8 @@ import com.example.musicroom.presentation.playlist.PlaylistTracksScreen
 import com.example.musicroom.presentation.playlists.PublicPlaylistsScreen
 import com.example.musicroom.presentation.events.EventDetailsScreen
 import com.example.musicroom.presentation.auth.ForgotPasswordScreen
+import com.example.musicroom.presentation.devices.DeviceControlScreen
+import com.example.musicroom.presentation.settings.ServerSettingsScreen
 
 /**
  * Main Application Entry Point
@@ -94,7 +101,10 @@ import com.example.musicroom.presentation.auth.ForgotPasswordScreen
  */
 @AndroidEntryPoint
 class AppEntryPoint : ComponentActivity() {
-    
+
+    @Inject
+    lateinit var tokenManager: TokenManager
+
     // ============================================================================
     // INTENT HANDLING - For deep linking and external app launches
     // ============================================================================
@@ -110,8 +120,34 @@ class AppEntryPoint : ComponentActivity() {
         setContent {
             MusicRoomTheme {
                 val navController = rememberNavController()
-                var hasSeenOnboarding by remember { mutableStateOf(false) }
-                
+                var showSessionExpiredDialog by remember { mutableStateOf(false) }
+
+                // Session expiry: any authenticated API call that comes back 401 signals here
+                // (see TokenManager.notifySessionExpired), regardless of which screen is open.
+                LaunchedEffect(Unit) {
+                    tokenManager.sessionExpired.collect {
+                        showSessionExpiredDialog = true
+                    }
+                }
+
+                if (showSessionExpiredDialog) {
+                    AlertDialog(
+                        onDismissRequest = { /* must acknowledge to continue */ },
+                        title = { Text("Session Expired") },
+                        text = { Text("Your session has expired. Please log in again to continue.") },
+                        confirmButton = {
+                            Button(onClick = {
+                                showSessionExpiredDialog = false
+                                navController.navigate("auth") {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }) {
+                                Text("Log In")
+                            }
+                        }
+                    )
+                }
+
                 NavHost(
                     navController = navController,
                     startDestination = "splash"
@@ -119,15 +155,24 @@ class AppEntryPoint : ComponentActivity() {
                     // Splash Screen
                     composable("splash") {
                         SplashScreen(
-                            onNavigateToOnboarding = { navController.navigate("onboarding") }
+                            onNavigateToOnboarding = {
+                                val next = when {
+                                    !tokenManager.hasSeenOnboarding() -> "onboarding"
+                                    tokenManager.isLoggedIn() -> "home"
+                                    else -> "auth"
+                                }
+                                navController.navigate(next) {
+                                    popUpTo("splash") { inclusive = true }
+                                }
+                            }
                         )
                     }
-                    
+
                     // Onboarding Screen
                     composable("onboarding") {
                         OnboardingScreen(
                             onFinish = {
-                                hasSeenOnboarding = true
+                                tokenManager.setOnboardingSeen()
                                 navController.navigate("auth") {
                                     popUpTo("splash") { inclusive = true }
                                 }
@@ -142,15 +187,21 @@ class AppEntryPoint : ComponentActivity() {
                                 navController.navigate("home") {
                                     popUpTo(0) { inclusive = true }
                                 }
-                            }
+                            },
+                            onOpenServerSettings = { navController.navigate("server_settings") }
                         )
+                    }
+
+                    // Server Settings Screen (runtime-configurable backend URL, for testing)
+                    composable("server_settings") {
+                        ServerSettingsScreen(onBack = { navController.popBackStack() })
                     }
                       
                     // Main Home Dashboard
                     composable("home") {
                         val dummyUser = com.example.musicroom.data.models.User(
                             id = "dummy_user",
-                            name = "User",
+                            fullName = "User",
                             username = "user",
                             photoUrl = "",
                             email = "user@example.com"
@@ -161,6 +212,13 @@ class AppEntryPoint : ComponentActivity() {
                     // Music Search Screen
                     composable("music_search") {
                         MusicSearchScreen(navController = navController)
+                    }
+
+                    // Music Control Delegation Screen
+                    composable("device_control") {
+                        DeviceControlScreen(
+                            onBack = { navController.popBackStack() }
+                        )
                     }
                     
                     // Now Playing / Media Player Screen

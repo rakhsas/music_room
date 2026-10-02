@@ -1,0 +1,484 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MusicRoom Request Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a signal chain. Endpoint rack on the left, the live wiring diagram on the right,
+   request/response sheets underneath. HTTP methods carry their own colors, like patch cables. */
+:root {
+  --bg: #eef0f5;
+  --surface: #ffffff;
+  --sunken: #f6f7fa;
+  --fg: #161a26;
+  --muted: #5b6177;
+  --line: #d6dae5;
+  --accent: #0b8a7c;
+  --get: #0b8a7c;
+  --post: #4a55c9;
+  --put: #b26c12;
+  --del: #c23a33;
+  --ok: #1f8a4c;
+  --bad: #c23a33;
+  --wire: #b9bfce;
+  --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f121a; --surface: #171b26; --sunken: #12151e; --fg: #e6e8ef; --muted: #959cb3;
+    --line: #2a3043; --accent: #3fd0bd; --get: #3fd0bd; --post: #8d96ff; --put: #f0a94a;
+    --del: #ff7b72; --ok: #4fd18b; --bad: #ff7b72; --wire: #3a4258; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f121a; --surface: #171b26; --sunken: #12151e; --fg: #e6e8ef; --muted: #959cb3;
+  --line: #2a3043; --accent: #3fd0bd; --get: #3fd0bd; --post: #8d96ff; --put: #f0a94a;
+  --del: #ff7b72; --ok: #4fd18b; --bad: #ff7b72; --wire: #3a4258; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font-body); padding-inline: 16px; padding-block: 24px 48px; }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 20px; }
+header { display: grid; gap: 6px; }
+h1 { font: 700 clamp(22px, 3.2vw, 32px)/1.15 var(--font-display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0; color: var(--muted); max-width: 70ch; }
+.lede code, .note code { font: 13px var(--font-mono); color: var(--fg); }
+.layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* rack */
+.rack { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 0; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); overflow: hidden; grid-template-rows: auto auto minmax(0, 1fr); }
+@media (max-width: 900px) { .rack { position: static; max-height: 460px; } }
+.rack-head { padding: 14px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
+.label { font: 600 11px var(--font-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+#search { width: 100%; font: 14px var(--font-body); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--sunken); color: var(--fg); }
+.scenarios { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.scenarios .label { width: 100%; }
+.chip-btn { font: 500 13px var(--font-body); padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--sunken); color: var(--fg); cursor: pointer; }
+.chip-btn:hover { border-color: var(--accent); }
+.chip-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.list { overflow-y: auto; padding: 6px 0 12px; }
+.group { padding: 10px 14px 4px; }
+.ep { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; align-items: baseline; width: 100%; text-align: left; border: 0; background: none; color: var(--fg); padding: 6px 14px; cursor: pointer; font: inherit; }
+.ep:hover { background: var(--sunken); }
+.ep[aria-current="true"] { background: var(--sunken); box-shadow: inset 3px 0 0 var(--accent); }
+.ep .path { font: 12.5px/1.35 var(--font-mono); overflow-wrap: anywhere; }
+.ep .sum { display: block; font-size: 12.5px; color: var(--muted); font-family: var(--font-body); }
+.m { font: 600 11px var(--font-mono); letter-spacing: 0.04em; }
+.m-GET { color: var(--get); } .m-POST { color: var(--post); } .m-PUT { color: var(--put); } .m-DELETE { color: var(--del); }
+
+/* stage */
+.stage { display: grid; gap: 14px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.now { padding: 16px 18px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
+.reqline { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.reqline .m { font-size: 14px; }
+.reqline .path { font: 600 16px var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
+.summary { font: 500 17px var(--font-body); margin: 0; }
+.desc { margin: 0; color: var(--muted); font-size: 14px; max-width: 80ch; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { font: 500 12px var(--font-body); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.tag.lock { color: var(--post); border-color: currentColor; }
+.tag.open { color: var(--get); border-color: currentColor; }
+.tag.limit { color: var(--put); border-color: currentColor; }
+.diagram { overflow-x: auto; padding: 8px 6px 0; }
+.diagram svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 18px 16px; }
+.play { font: 600 14px var(--font-body); padding: 8px 16px; border-radius: 6px; border: 0; background: var(--fg); color: var(--bg); cursor: pointer; }
+.controls .label { margin-left: 6px; }
+.outcome { font: 500 12.5px var(--font-mono); padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--sunken); color: var(--fg); cursor: pointer; }
+.outcome[aria-pressed="true"] { border-color: currentColor; }
+.outcome.good[aria-pressed="true"] { color: var(--ok); }
+.outcome.err[aria-pressed="true"] { color: var(--bad); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* svg pieces */
+.node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; transition: stroke .2s, fill .2s, opacity .2s; }
+.node text { fill: var(--fg); font: 600 12.5px var(--font-body); }
+.node .sub { fill: var(--muted); font: 400 10.5px var(--font-mono); }
+.node.res rect { fill: var(--sunken); }
+.node.lit rect { stroke: var(--accent); stroke-width: 2.5; }
+.node.fail rect { stroke: var(--bad); stroke-width: 2.5; }
+.node.skip { opacity: .38; }
+.wire { stroke: var(--wire); stroke-width: 2; fill: none; }
+.wire.dash { stroke-dasharray: 4 5; }
+.zone { fill: none; stroke: var(--line); stroke-dasharray: 3 4; }
+.zone-label { fill: var(--muted); font: 600 10px var(--font-body); letter-spacing: .08em; text-transform: uppercase; }
+#packet { fill: var(--accent); }
+#status { font: 700 14px var(--font-mono); }
+
+/* trace + sheets */
+.trace { padding: 14px 18px 18px; border-top: 1px solid var(--line); }
+.trace ol { margin: 8px 0 0; padding-left: 22px; display: grid; gap: 4px; font-size: 14px; }
+.trace li::marker { font: 600 12px var(--font-mono); color: var(--muted); }
+.trace li.fail { color: var(--bad); }
+.trace li code { font: 12.5px var(--font-mono); }
+.sheets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 700px) { .sheets { grid-template-columns: minmax(0, 1fr); } }
+.sheet { padding: 14px 16px; display: grid; gap: 8px; align-content: start; }
+.sheet h2 { font: 700 13px var(--font-display); margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.code { font: 12.5px/1.5 var(--font-mono); background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 0; overflow: auto; max-height: 340px; white-space: pre; }
+.k { color: var(--post); } .s { color: var(--get); } .n { color: var(--put); }
+.errs { display: grid; gap: 4px; font-size: 13.5px; margin: 0; padding: 0; list-style: none; }
+.errs b { font: 600 12.5px var(--font-mono); color: var(--bad); margin-right: 6px; }
+.note { color: var(--muted); font-size: 13px; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .node rect { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>MusicRoom Request Flow</h1>
+    <p class="lede">Pick an endpoint or a scenario and press <b>Play</b> to follow the request through the NestJS backend: every stage it crosses, every service it calls, and what comes back. All routes live under <code>/api</code> on port 8000. Swagger at <code>/swagger</code> stays the source of truth.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="rack" aria-label="Endpoints">
+      <div class="rack-head">
+        <label class="label" for="search">Endpoints</label>
+        <input id="search" type="search" placeholder="Filter: vote, playlists, POST…" autocomplete="off">
+      </div>
+      <div class="scenarios" id="scenarios"><span class="label">Scenarios, played in order</span></div>
+      <nav class="list" id="list"></nav>
+    </aside>
+
+    <section class="stage">
+      <div class="panel">
+        <div class="now">
+          <div class="reqline"><span class="m" id="cur-m"></span><span class="path" id="cur-p"></span></div>
+          <p class="summary" id="cur-s"></p>
+          <p class="desc" id="cur-d"></p>
+          <div class="tags" id="cur-tags"></div>
+        </div>
+        <div class="diagram">
+          <svg id="svg" viewBox="0 0 1000 400" role="img" aria-label="Request path through the backend">
+            <rect class="zone" x="140" y="62" width="840" height="100" rx="10"></rect>
+            <text class="zone-label" x="152" y="56">NestJS · Backend-Nest</text>
+            <text class="zone-label" x="152" y="252">Data & outside services</text>
+            <g id="wires"></g>
+            <g id="nodes"></g>
+            <circle id="packet" r="7" cx="60" cy="112" opacity="0"></circle>
+            <text id="status" x="60" y="190" text-anchor="middle"></text>
+          </svg>
+        </div>
+        <div class="controls">
+          <button class="play" id="play" type="button">Play ▶</button>
+          <span class="label">Outcome</span>
+          <span id="outcomes" style="display:contents"></span>
+        </div>
+        <div class="trace">
+          <span class="label">Trace</span>
+          <ol id="trace"></ol>
+        </div>
+      </div>
+
+      <div class="sheets">
+        <div class="panel sheet">
+          <h2>Request</h2>
+          <pre class="code" id="req"></pre>
+          <p class="note" id="req-note"></p>
+        </div>
+        <div class="panel sheet">
+          <h2>Response <span class="m" id="res-code"></span></h2>
+          <pre class="code" id="res"></pre>
+          <span class="label" id="errs-label">Possible errors</span>
+          <ul class="errs" id="errs"></ul>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const EP = [{"m":"GET","p":"/api","t":"app","s":"Service info","d":"","pub":true,"q":[],"ok":200,"res":{"service":"musicroom-nest","environment":"development"},"err":{}},{"m":"GET","p":"/api/health","t":"app","s":"Health check","d":"","pub":true,"q":[],"ok":200,"res":{"status":"ok"},"err":{}},{"m":"POST","p":"/api/users/create","t":"auth","s":"Register a new account","d":"Account is inactive until the emailed verification link is opened.","pub":true,"body":{"full_name":"John Doe","username":"johndoe","email":"john@example.com","password":"Passw0rd!"},"q":[],"ok":201,"res":{"id":1,"email":"john@example.com","fullName":"John Doe","userName":"johndoe","message":"Registration successful. Please check your email to verify your account."},"err":{"400":"Email already exists | Username already taken"}},{"m":"GET","p":"/api/users/verify-email","t":"auth","s":"Verify email (link opened from the email)","d":"","pub":true,"q":["token"],"ok":200,"res":{"message":"Email verified successfully! You can now log in to your account."},"err":{"400":"Invalid or expired token"}},{"m":"POST","p":"/api/users/verify-email","t":"auth","s":"Verify email (token in body)","d":"","pub":true,"body":{"token":"…"},"q":[],"ok":201,"res":{"message":"Email verified successfully! You can now log in to your account."},"err":{"400":"Invalid or expired token"}},{"m":"POST","p":"/api/users/resend-verification-email","t":"auth","s":"Resend the verification email","d":"","pub":true,"body":{"email":"john@example.com"},"q":[],"ok":201,"res":{"message":"Verification email sent successfully"},"err":{"400":"User with this email does not exist | Email is already verified","429":"ThrottlerException: Too Many Requests (max 5 per minute)"}},{"m":"POST","p":"/api/users/login","t":"auth","s":"Log in with email + password","d":"Send `tokens.access` as `Authorization: Bearer <token>` on protected routes.","pub":true,"body":{"email":"john@example.com","password":"Passw0rd!"},"q":[],"ok":200,"res":{"user":{"id":1,"email":"john@example.com","fullName":"John Doe","userName":"johndoe","avatar":"default_avatar.png"},"tokens":{"access":"<JWT, valid 60 min>","refresh":"<JWT, valid 7 days>"},"message":"Login successful"},"err":{"401":"Invalid email or password | Account is not verified. Please check your email.","429":"ThrottlerException: Too Many Requests (max 5 per minute)"}},{"m":"POST","p":"/api/users/logout","t":"auth","s":"Log out everywhere","d":"Send a bearer token OR `refresh_token` in the body. Revokes every access/refresh token of the user.","pub":false,"body":{"refresh_token":"<refresh JWT>"},"q":[],"ok":200,"res":{"message":"Successfully logged out"},"err":{"401":"A bearer token or refresh_token is required"}},{"m":"POST","p":"/api/users/token/refresh","t":"auth","s":"Get a new access + refresh token pair","d":"","pub":true,"body":{"refresh_token":"…"},"q":[],"ok":200,"res":{"user":{"id":1,"email":"john@example.com","fullName":"John Doe","userName":"johndoe","avatar":"default_avatar.png"},"tokens":{"access":"<JWT, valid 60 min>","refresh":"<JWT, valid 7 days>"},"message":"Token refreshed"},"err":{"401":"Invalid or expired refresh token"}},{"m":"POST","p":"/api/users/password-reset","t":"auth","s":"Password reset step 1: email a 6-digit OTP","d":"OTP is valid 10 minutes.","pub":true,"body":{"email":"john@example.com"},"q":[],"ok":201,"res":{"message":"Password reset OTP sent to your email"},"err":{"400":"User with this email does not exist","429":"ThrottlerException: Too Many Requests (max 5 per minute)"}},{"m":"POST","p":"/api/users/password-reset-verify-otp","t":"auth","s":"Password reset step 2: verify the OTP","d":"","pub":true,"body":{"email":"john@example.com","otp":"123456"},"q":[],"ok":201,"res":{"message":"OTP verified successfully. You can now set your new password."},"err":{"400":"No OTP found. Please request a password reset. | The OTP has expired. Please request a new one. | Invalid OTP. Please try again.","429":"ThrottlerException: Too Many Requests (max 5 per minute)"}},{"m":"POST","p":"/api/users/password-reset-confirm","t":"auth","s":"Password reset step 3: set the new password","d":"","pub":true,"body":{"email":"john@example.com","otp":"123456","password":"NewPassw0rd!"},"q":[],"ok":201,"res":{"message":"Password reset successful! You can now log in with your new password."},"err":{"400":"OTP not verified. Please verify the OTP first. | Invalid OTP. | Your OTP session has expired.","429":"ThrottlerException: Too Many Requests (max 5 per minute)"}},{"m":"POST","p":"/api/users/social-login","t":"auth","s":"Log in / sign up with Google","d":"Creates the account on first login (or links it to an existing account with the same email).","pub":true,"body":{"provider":"google","access_token":"sample-access-token"},"q":[],"ok":200,"res":{"user":{"id":1,"email":"john@example.com","fullName":"John Doe","userName":"johndoe","avatar":"default_avatar.png"},"tokens":{"access":"<JWT, valid 60 min>","refresh":"<JWT, valid 7 days>"},"message":"google login successful"},"err":{"400":"Invalid Google token | Google did not share an email address","429":"ThrottlerException: Too Many Requests (max 5 per minute)"}},{"m":"POST","p":"/api/users/social-link","t":"auth","s":"Link a Google account to the current user","d":"","pub":false,"body":{"provider":"google","access_token":"sample-access-token"},"q":[],"ok":201,"res":{"message":"Google account linked successfully"},"err":{"400":"Invalid Google token","409":"This Google account is already linked to another user"}},{"m":"GET","p":"/api/users/profile","t":"auth","s":"Get my full profile","d":"`card` is null when no card is stored.","pub":false,"q":[],"ok":200,"res":{"id":1,"email":"john@example.com","fullName":"John Doe","userName":"johndoe","avatar":"default_avatar.png","bio":"Music lover and playlist curator.","dateOfBirth":"1995-06-15","phoneNumber":"+33612345678","profilePrivacy":"public","emailPrivacy":"friends","phonePrivacy":"private","googleId":null,"subscriptionType":"premium","isPremium":true,"isSubscribed":true,"premiumSince":"2026-09-01T10:00:00.000Z","card":{"brand":"Visa","last4":"4242"},"plan":{"amount":4.99,"currency":"EUR","interval":"month"},"musicPreferences":{"favorite_genre":"rock"},"likedArtists":["Daft Punk"],"likedAlbums":["Discovery"],"likedSongs":["One More Time"],"genres":["rock","electronic"],"createdAt":"2026-08-01T10:00:00.000Z"},"err":{}},{"m":"PUT","p":"/api/users/profile/update","t":"auth","s":"Update my profile (only sent fields change)","d":"","pub":false,"body":{"full_name":"John Doe","userName":"johndoe","bio":"Music lover and playlist curator.","date_of_birth":"1995-06-15","phone_number":"+33612345678","profile_privacy":"public","email_privacy":"private","phone_privacy":"private","music_preferences":{"favorite_genre":"rock"},"liked_artists":["Daft Punk"],"liked_albums":["Discovery"],"liked_songs":["One More Time"],"genres":["rock","electronic"]},"q":[],"ok":200,"res":{"id":1,"email":"john@example.com","fullName":"John Doe","userName":"johndoe","avatar":"default_avatar.png","bio":"Music lover and playlist curator.","dateOfBirth":"1995-06-15","phoneNumber":"+33612345678","profilePrivacy":"public","emailPrivacy":"friends","phonePrivacy":"private","googleId":null,"subscriptionType":"premium","isPremium":true,"isSubscribed":true,"premiumSince":"2026-09-01T10:00:00.000Z","card":{"brand":"Visa","last4":"4242"},"plan":{"amount":4.99,"currency":"EUR","interval":"month"},"musicPreferences":{"favorite_genre":"rock"},"likedArtists":["Daft Punk"],"likedAlbums":["Discovery"],"likedSongs":["One More Time"],"genres":["rock","electronic"],"createdAt":"2026-08-01T10:00:00.000Z"},"err":{"400":"Username already taken"}},{"m":"POST","p":"/api/users/subscribe","t":"auth","s":"Switch plan (free / premium)","d":"Returns the updated profile. Premium needs a card (simulated checkout; 4000 0000 0000 0002 is always declined).","pub":false,"body":{"subscriptionType":"premium","card":"…"},"q":[],"ok":201,"res":{"id":1,"email":"john@example.com","fullName":"John Doe","userName":"johndoe","avatar":"default_avatar.png","bio":"Music lover and playlist curator.","dateOfBirth":"1995-06-15","phoneNumber":"+33612345678","profilePrivacy":"public","emailPrivacy":"friends","phonePrivacy":"private","googleId":null,"subscriptionType":"premium","isPremium":true,"isSubscribed":true,"premiumSince":"2026-09-01T10:00:00.000Z","card":{"brand":"Visa","last4":"4242"},"plan":{"amount":4.99,"currency":"EUR","interval":"month"},"musicPreferences":{"favorite_genre":"rock"},"likedArtists":["Daft Punk"],"likedAlbums":["Discovery"],"likedSongs":["One More Time"],"genres":["rock","electronic"],"createdAt":"2026-08-01T10:00:00.000Z"},"err":{"400":"A payment card is required to upgrade to Premium | Card number is invalid | Card has expired | Security code (CVC) is invalid","402":"Your card was declined"}},{"m":"GET","p":"/api/users","t":"users","s":"List all active users except me","d":"`email` is null unless that user's emailPrivacy lets you see it.","pub":false,"q":[],"ok":200,"res":[{"id":2,"fullName":"Jane Doe","userName":"janedoe","email":null,"avatar":"default_avatar.png"}],"err":{}},{"m":"GET","p":"/api/users/friends/list","t":"users","s":"List my friends","d":"","pub":false,"q":[],"ok":200,"res":[{"id":2,"fullName":"Jane Doe","userName":"janedoe","avatar":"default_avatar.png"}],"err":{}},{"m":"POST","p":"/api/users/friends/add","t":"users","s":"Add a friend (lets them see my \"friends\"-level info)","d":"One-directional: it only grants THEM access to MY friends-only fields.","pub":false,"body":{"userName":"janedoe"},"q":[],"ok":201,"res":{"message":"Jane Doe can now see your friends-only info"},"err":{"404":"User not found"}},{"m":"DELETE","p":"/api/users/friends/{userId}","t":"users","s":"Remove a friend","d":"","pub":false,"q":[],"ok":200,"res":{"message":"Friend removed"},"err":{}},{"m":"GET","p":"/api/users/{userName}","t":"users","s":"Get a user's public profile by username","d":"Returns an empty body when the user is not found. `email`/`phoneNumber` are null when hidden by privacy; bio, dateOfBirth, musicPreferences, liked* and genres are omitted when profilePrivacy hides them. `isFriend` = that user has added you as a friend. Your own username returns your full profile.","pub":false,"q":[],"ok":200,"res":{"id":2,"fullName":"Jane Doe","userName":"janedoe","avatar":"default_avatar.png","email":"jane@example.com","phoneNumber":null,"bio":"Techno addict.","dateOfBirth":"1996-02-10","musicPreferences":{},"likedArtists":[],"likedAlbums":[],"likedSongs":[],"genres":["electronic"],"isFriend":true,"createdAt":"2026-08-01T10:00:00.000Z"},"err":{}},{"m":"GET","p":"/api/music/songs","t":"music","s":"Random songs","d":"Raw Jamendo v3.0 response: `headers` + `results` array.","pub":false,"q":["limit?"],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}]},"err":{}},{"m":"GET","p":"/api/music/related","t":"music","s":"Songs matching a user's favourite genres","d":"Raw Jamendo v3.0 response: `headers` + `results` array.","pub":false,"q":["user_id?","limit?"],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}]},"err":{}},{"m":"GET","p":"/api/music/songs/{trackId}","t":"music","s":"Song detail","d":"Raw Jamendo v3.0 response: `headers` + `results` array. `results` holds the one track (empty if the id is unknown).","pub":false,"q":[],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}]},"err":{}},{"m":"GET","p":"/api/music/random-songs","t":"music","s":"Random songs","d":"Raw Jamendo v3.0 response: `headers` + `results` array.","pub":false,"q":["limit?"],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}]},"err":{}},{"m":"GET","p":"/api/music/tracks/search-name/{query}","t":"music","s":"Search tracks by name (max 10)","d":"Raw Jamendo v3.0 response: `headers` + `results` array.","pub":false,"q":[],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}]},"err":{}},{"m":"GET","p":"/api/music/artists","t":"music","s":"10 artists","d":"Raw Jamendo v3.0 response: `headers` + `results` array.","pub":false,"q":[],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"7872","name":"Jekk","website":"https://jekk.example","joindate":"2008-11-20","image":"https://usercontent.jamendo.com?type=artist&id=7872&width=300","shareurl":"https://www.jamendo.com/artist/7872"}]},"err":{}},{"m":"GET","p":"/api/music/artists/popular","t":"music","s":"Popular artists","d":"Raw Jamendo v3.0 response: `headers` + `results` array.","pub":false,"q":["limit?"],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"7872","name":"Jekk","website":"https://jekk.example","joindate":"2008-11-20","image":"https://usercontent.jamendo.com?type=artist&id=7872&width=300","shareurl":"https://www.jamendo.com/artist/7872"}]},"err":{}},{"m":"GET","p":"/api/music/artists/search/{query}","t":"music","s":"Search artists by name","d":"Raw Jamendo v3.0 response: `headers` + `results` array.","pub":false,"q":[],"ok":200,"res":{"headers":{"status":"success","code":0,"error_message":"","warnings":"","results_count":1},"results":[{"id":"7872","name":"Jekk","website":"https://jekk.example","joindate":"2008-11-20","image":"https://usercontent.jamendo.com?type=artist&id=7872&width=300","shareurl":"https://www.jamendo.com/artist/7872"}]},"err":{}},{"m":"GET","p":"/api/music/artists/{id}","t":"music","s":"Artist detail + up to 50 of their tracks","d":"`artist` is null if the id is unknown.","pub":false,"q":[],"ok":200,"res":{"artist":{"id":"7872","name":"Jekk","website":"https://jekk.example","joindate":"2008-11-20","image":"https://usercontent.jamendo.com?type=artist&id=7872&width=300","shareurl":"https://www.jamendo.com/artist/7872"},"tracks":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}]},"err":{}},{"m":"GET","p":"/api/events","t":"events","s":"List public events (max 20)","d":"","pub":false,"q":["location?"],"ok":200,"res":[{"id":3,"title":"Friday Night Jam","organizer":"John Doe","location":"E1","attendeeCount":5,"eventStartTime":"2026-09-20T20:00:00.000Z","isPublic":true}],"err":{"400":"Invalid location filter. Must be one of: E1, E2, ..."}},{"m":"GET","p":"/api/events/locations","t":"events","s":"Allowed event locations","d":"","pub":false,"q":[],"ok":200,"res":{"locations":[{"value":"E1","label":"E1"},{"value":"Agora","label":"Agora"}]},"err":{}},{"m":"POST","p":"/api/events/create","t":"events","s":"Create an event (I become owner)","d":"","pub":false,"body":{"title":"Friday Night Jam","description":"Come vote for the next tracks!","location":"E1","eventStartTime":"2026-09-20T20:00:00Z","eventEndTime":"2026-09-20T23:00:00Z","isPublic":true},"q":[],"ok":201,"res":{"id":3,"title":"Friday Night Jam","message":"Event created successfully"},"err":{"400":"Invalid location. Must be one of: ...","403":"Private events are a Premium feature. | Free accounts can organize up to 3 events."}},{"m":"GET","p":"/api/events/my-events","t":"events","s":"Events I organize, manage or attend","d":"`userRole`: owner | editor | listener (or organizer | manager | attendee for legacy rows).","pub":false,"q":[],"ok":200,"res":{"events":[{"id":3,"title":"Friday Night Jam","description":"Come vote for the next tracks!","location":"E1","startTime":"2026-09-20T20:00:00.000Z","endTime":"2026-09-20T23:00:00.000Z","isPublic":true,"organizer":"John Doe","createdAt":"2026-09-01T10:00:00.000Z","updatedAt":"2026-09-01T10:00:00.000Z","attendeesCount":5,"trackCount":12,"userRole":"owner","canEdit":true}],"count":1},"err":{}},{"m":"GET","p":"/api/events/{eventId}","t":"events","s":"Event detail","d":"Private events need a token of the organizer or an attendee. `currentUserRole` is null when anonymous.","pub":false,"q":[],"ok":200,"res":{"id":3,"title":"Friday Night Jam","description":"Come vote for the next tracks!","location":"E1","eventStartTime":"2026-09-20T20:00:00.000Z","eventEndTime":"2026-09-20T23:00:00.000Z","organizer":{"id":1,"name":"John Doe","avatar":"default_avatar.png"},"attendeeCount":5,"trackCount":1,"isPublic":true,"songs":[{"trackId":"1204669","voteCount":3,"hasUserVoted":true}],"userRoles":{"1":"owner","2":"listener"},"currentUserRole":"owner"},"err":{"403":"Access denied","404":"Event not found"}},{"m":"POST","p":"/api/events/{eventId}/join","t":"events","s":"Join a public event (as listener)","d":"Also returns 201 with \"Already attending this event\" if already in.","pub":false,"q":[],"ok":201,"res":{"message":"Successfully joined event"},"err":{"403":"Cannot join private event","404":"Event not found"}},{"m":"DELETE","p":"/api/events/{eventId}/leave","t":"events","s":"Leave an event","d":"Returns \"Not attending this event\" if not in.","pub":false,"q":[],"ok":200,"res":{"message":"Successfully left event"},"err":{"400":"Organizer cannot leave their own event","404":"Event not found"}},{"m":"POST","p":"/api/events/{eventId}/add-user/{userId}","t":"events","s":"Add a user as attendee (owner/editor)","d":"","pub":false,"q":[],"ok":201,"res":{"message":"User Jane Doe added successfully"},"err":{"403":"Only organizer or managers can add users","404":"Event not found | User not found"}},{"m":"DELETE","p":"/api/events/{eventId}/remove-user/{userId}","t":"events","s":"Remove an attendee (owner/editor)","d":"","pub":false,"q":[],"ok":200,"res":{"message":"User Jane Doe removed successfully"},"err":{"400":"Cannot remove organizer from event","403":"Only organizer or managers can remove users","404":"Event not found | User not found"}},{"m":"GET","p":"/api/events/{eventId}/attendees","t":"events","s":"List attendees","d":"","pub":false,"q":[],"ok":200,"res":[{"id":2,"name":"Jane Doe","avatar":"default_avatar.png"}],"err":{"403":"Access denied","404":"Event not found"}},{"m":"GET","p":"/api/events/{eventId}/tracks","t":"events","s":"Event tracks with votes, most voted first","d":"Each track is the Jamendo track object plus `votes`.","pub":false,"q":[],"ok":200,"res":{"eventInfo":{"id":3,"title":"Friday Night Jam","organizer":"John Doe","trackCount":1,"attendeeCount":5,"isPublic":true},"tracks":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true,"votes":3}]},"err":{"403":"Access denied","404":"Event not found","502":"Failed to fetch track details from Jamendo"}},{"m":"POST","p":"/api/events/{eventId}/tracks/{trackId}/add","t":"events","s":"Suggest a track (attendees)","d":"Returns \"Track already in event\" if present.","pub":false,"q":[],"ok":201,"res":{"message":"Track added successfully"},"err":{"403":"Only attendees can add tracks","404":"Event not found"}},{"m":"DELETE","p":"/api/events/{eventId}/tracks/{trackId}/remove","t":"events","s":"Remove a track and its votes (owner/editor)","d":"Returns \"Track not in event\" if absent.","pub":false,"q":[],"ok":200,"res":{"message":"Track removed successfully"},"err":{"403":"Only organizer or managers can remove tracks","404":"Event not found"}},{"m":"POST","p":"/api/events/{eventId}/tracks/{trackId}/vote","t":"events","s":"Vote for a track","d":"Returns \"Already voted for this track or track not in event\" when nothing changed. Who may vote depends on the vote license.","pub":false,"q":[],"ok":201,"res":{"message":"Vote added successfully"},"err":{"403":"Access denied | Only invited attendees can vote on this event | Voting is only open between 16:00 and 18:00","404":"Event not found"}},{"m":"DELETE","p":"/api/events/{eventId}/tracks/{trackId}/unvote","t":"events","s":"Remove my vote","d":"Returns \"Vote not found\" if I had not voted.","pub":false,"q":[],"ok":200,"res":{"message":"Vote removed successfully"},"err":{"403":"Access denied | Only invited attendees can vote on this event","404":"Event not found"}},{"m":"PUT","p":"/api/events/{eventId}/visibility","t":"events","s":"Make event public/private (owner/editor)","d":"","pub":false,"body":{"isPublic":true},"q":[],"ok":200,"res":{"message":"Event visibility changed to private"},"err":{"403":"Only organizer or managers can change visibility | Private events are a Premium feature.","404":"Event not found"}},{"m":"PUT","p":"/api/events/{eventId}/vote-license","t":"events","s":"Change who can vote (owner/editor)","d":"everyone | invited_only (attendees) | time_window (attendees, between voteWindowStart and voteWindowEnd HH:MM).","pub":false,"body":{"voteLicense":"everyone","voteWindowStart":"16:00","voteWindowEnd":"18:00"},"q":[],"ok":200,"res":{"message":"Vote license changed to time_window"},"err":{"400":"vote_window_start and vote_window_end (HH:MM) are required for the time_window license","403":"Only organizer or managers can change the vote license","404":"Event not found"}},{"m":"GET","p":"/api/events/{eventId}/roles","t":"events","s":"Roles of everyone in the event","d":"","pub":false,"q":[],"ok":200,"res":{"userRoles":{"1":"owner","2":"listener"},"usersByRole":{"owner":[{"id":1,"name":"John Doe","avatar":"default_avatar.png","role":"owner"}],"editor":[],"listener":[{"id":2,"name":"Jane Doe","avatar":"default_avatar.png","role":"listener"}]}},"err":{"403":"Access denied","404":"Event not found"}},{"m":"POST","p":"/api/events/{eventId}/assign-editor/{userId}","t":"events","s":"Make a user editor (owner only)","d":"","pub":false,"q":[],"ok":201,"res":{"message":"User Jane Doe assigned as editor successfully"},"err":{"403":"Only event owner can assign editor roles","404":"Event not found | User not found"}},{"m":"POST","p":"/api/events/{eventId}/transfer-ownership/{userId}","t":"events","s":"Transfer ownership (I become editor)","d":"","pub":false,"q":[],"ok":201,"res":{"message":"Ownership transferred to Jane Doe successfully"},"err":{"403":"Only current owner can transfer ownership","404":"Event not found | User not found"}},{"m":"DELETE","p":"/api/events/{eventId}/remove-user-role/{userId}","t":"events","s":"Remove a user from the event (owner, or yourself)","d":"","pub":false,"q":[],"ok":200,"res":{"message":"User Jane Doe removed from event successfully"},"err":{"400":"Cannot remove the event owner | User is not part of this event","403":"Only owner or the user themselves can remove from event","404":"Event not found | User not found"}},{"m":"POST","p":"/api/events/{eventId}/invite","t":"events","s":"Invite a user","d":"Owner can invite any role; managers only attendees. The invitee sees it in /api/home notifications.","pub":false,"body":{"userId":1,"role":"organizer"},"q":[],"ok":201,"res":{"message":"Invitation sent successfully for attendee role"},"err":{"400":"User is already attending this event | User already has a pending invite","403":"You don't have permission to invite users as manager","404":"Event not found | User not found"}},{"m":"GET","p":"/api/events/{eventId}/pending-invites","t":"events","s":"Pending invites (owner only)","d":"","pub":false,"q":[],"ok":200,"res":{"pendingInvites":[{"userId":"2","name":"Jane Doe","email":"jane@example.com","role":"attendee","invitedAt":"2026-09-18T12:00:00.000Z"}],"count":1},"err":{"403":"Only organizers and managers can view pending invites","404":"Event not found"}},{"m":"POST","p":"/api/events/{eventId}/accept-invite","t":"events","s":"Accept my invite","d":"","pub":false,"q":[],"ok":201,"res":{"message":"Invitation accepted successfully. You are now a attendee"},"err":{"400":"No pending invite found","404":"Event not found"}},{"m":"POST","p":"/api/events/{eventId}/decline-invite","t":"events","s":"Decline my invite","d":"","pub":false,"q":[],"ok":201,"res":{"message":"Invitation declined"},"err":{"400":"No pending invite found","404":"Event not found"}},{"m":"GET","p":"/api/playlists","t":"playlists","s":"List public playlists (max 20)","d":"","pub":false,"q":[],"ok":200,"res":[{"id":1,"name":"My Playlist","owner":"John Doe","trackCount":4,"followersCount":2,"createdAt":"2026-09-01T10:00:00.000Z"}],"err":{}},{"m":"GET","p":"/api/playlists/my","t":"playlists","s":"Playlists I own, collaborate on or follow","d":"`userRole` lists every relation I have: owner, collaborator, follower. Newest first.","pub":false,"q":[],"ok":200,"res":{"playlists":[{"id":1,"name":"My Playlist","owner":{"id":1,"name":"John Doe","avatar":"default_avatar.png"},"trackCount":4,"followersCount":2,"isPublic":true,"userRole":["owner"],"canEdit":true,"createdAt":"2026-09-01T10:00:00.000Z"}],"count":1},"err":{}},{"m":"GET","p":"/api/playlists/owned","t":"playlists","s":"Playlists I own","d":"","pub":false,"q":[],"ok":200,"res":{"playlists":[{"id":1,"name":"My Playlist","trackCount":4,"followersCount":2,"collaboratorsCount":1,"isPublic":true,"createdAt":"2026-09-01T10:00:00.000Z"}],"count":1},"err":{}},{"m":"GET","p":"/api/playlists/collaborative","t":"playlists","s":"Playlists I collaborate on (not owned)","d":"","pub":false,"q":[],"ok":200,"res":{"playlists":[{"id":5,"name":"Road Trip","owner":{"id":1,"name":"John Doe","avatar":"default_avatar.png"},"trackCount":10,"followersCount":3,"isPublic":true,"canEdit":true,"createdAt":"2026-09-01T10:00:00.000Z"}],"count":1},"err":{}},{"m":"GET","p":"/api/playlists/followed","t":"playlists","s":"Playlists I follow","d":"","pub":false,"q":[],"ok":200,"res":[{"id":1,"name":"My Playlist","owner":"John Doe","trackCount":4,"followersCount":2,"createdAt":"2026-09-01T10:00:00.000Z"}],"err":{}},{"m":"POST","p":"/api/playlists/create","t":"playlists","s":"Create a playlist","d":"","pub":false,"body":{"name":"My Playlist","isPublic":true},"q":[],"ok":201,"res":{"id":1,"name":"My Playlist","message":"Playlist created successfully"},"err":{"400":"Playlist name is required","403":"Private playlists are a Premium feature. | Free accounts can own up to 3 playlists."}},{"m":"GET","p":"/api/playlists/{playlistId}","t":"playlists","s":"Playlist detail","d":"`tracks` are Jamendo track ids in play order (use /tracks for full track objects). userPermissions are all false when anonymous.","pub":false,"q":[],"ok":200,"res":{"id":1,"name":"My Playlist","owner":{"id":1,"name":"John Doe","avatar":"default_avatar.png"},"tracks":["1204669","1204670"],"trackCount":2,"isPublic":true,"followersCount":2,"collaborators":[{"id":2,"name":"Jane Doe","avatar":"default_avatar.png"}],"couldEdit":["3"],"userPermissions":{"canEdit":true,"canDelete":true,"isFollowing":false,"isCollaborator":false,"isOwner":true},"createdAt":"2026-09-01T10:00:00.000Z"},"err":{"403":"Access denied","404":"Playlist not found"}},{"m":"PUT","p":"/api/playlists/{playlistId}/update","t":"playlists","s":"Rename / change visibility (editors)","d":"","pub":false,"body":{"name":"My Playlist","isPublic":true},"q":[],"ok":200,"res":{"message":"Playlist updated successfully"},"err":{"403":"Permission denied | Private playlists are a Premium feature.","404":"Playlist not found"}},{"m":"DELETE","p":"/api/playlists/{playlistId}/delete","t":"playlists","s":"Delete a playlist (owner only)","d":"","pub":false,"q":[],"ok":200,"res":{"message":"Playlist deleted successfully"},"err":{"403":"Only playlist owner can delete","404":"Playlist not found"}},{"m":"POST","p":"/api/playlists/{playlistId}/follow","t":"playlists","s":"Follow a public playlist (also grants edit rights)","d":"Returns { message: \"Already following this playlist\" } if already following.","pub":false,"q":[],"ok":201,"res":{"message":"Playlist followed successfully","note":"You now have edit permissions for this playlist"},"err":{"400":"Cannot follow your own playlist","403":"Cannot follow private playlist","404":"Playlist not found"}},{"m":"DELETE","p":"/api/playlists/{playlistId}/unfollow","t":"playlists","s":"Unfollow (also removes edit rights)","d":"Returns { message: \"Not following this playlist\" } if not following.","pub":false,"q":[],"ok":200,"res":{"message":"Playlist unfollowed successfully","note":"Edit permissions have been removed"},"err":{"404":"Playlist not found"}},{"m":"GET","p":"/api/playlists/{playlistId}/followers","t":"playlists","s":"List followers","d":"","pub":false,"q":[],"ok":200,"res":[{"id":2,"name":"Jane Doe","avatar":"default_avatar.png"}],"err":{"404":"Playlist not found"}},{"m":"POST","p":"/api/playlists/{playlistId}/collaborators/{userId}/add","t":"playlists","s":"Add a collaborator (owner only)","d":"","pub":false,"q":[],"ok":201,"res":{"message":"User Jane Doe added as collaborator"},"err":{"400":"User not found | Owner is already a collaborator | User Jane Doe is already a collaborator","403":"Only playlist owner can add collaborators","404":"Playlist not found"}},{"m":"DELETE","p":"/api/playlists/{playlistId}/collaborators/{userId}/remove","t":"playlists","s":"Remove a collaborator (owner only)","d":"Returns \"User is not a collaborator\" if they weren't.","pub":false,"q":[],"ok":200,"res":{"message":"User Jane Doe removed as collaborator"},"err":{"400":"User not found","403":"Only playlist owner can remove collaborators","404":"Playlist not found"}},{"m":"GET","p":"/api/playlists/{playlistId}/tracks","t":"playlists","s":"Playlist tracks (full Jamendo objects, in play order)","d":"","pub":false,"q":[],"ok":200,"res":{"playlistInfo":{"id":1,"name":"My Playlist","owner":"John Doe","trackCount":1,"isPublic":true,"followersCount":2},"tracks":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}]},"err":{"403":"Access denied","404":"Playlist not found","502":"Failed to fetch track details from Jamendo"}},{"m":"POST","p":"/api/playlists/{playlistId}/tracks/{trackId}/add","t":"playlists","s":"Add a track (editors)","d":"Returns \"Track already in playlist\" if present. Also broadcast to the playlist's websocket room.","pub":false,"q":[],"ok":201,"res":{"message":"Track added successfully"},"err":{"403":"Permission denied","404":"Playlist not found"}},{"m":"DELETE","p":"/api/playlists/{playlistId}/tracks/{trackId}/remove","t":"playlists","s":"Remove a track (editors)","d":"Returns \"Track not in playlist\" if absent. Also broadcast to the playlist's websocket room.","pub":false,"q":[],"ok":200,"res":{"message":"Track removed successfully"},"err":{"403":"Permission denied","404":"Playlist not found"}},{"m":"POST","p":"/api/playlists/{playlistId}/tracks/reorder","t":"playlists","s":"Reorder tracks (editors)","d":"trackOrder must contain exactly the current track ids. Also broadcast to the playlist's websocket room.","pub":false,"body":{"trackOrder":["track2","track1","track3"]},"q":[],"ok":201,"res":{"message":"Playlist tracks reordered successfully"},"err":{"400":"Invalid track order","403":"Permission denied","404":"Playlist not found"}},{"m":"PUT","p":"/api/playlists/{playlistId}/visibility","t":"playlists","s":"Make playlist public/private (owner only)","d":"","pub":false,"body":{"isPublic":true},"q":[],"ok":200,"res":{"message":"Playlist visibility changed to private"},"err":{"403":"Only playlist owner can change visibility | Private playlists are a Premium feature.","404":"Playlist not found"}},{"m":"POST","p":"/api/playlists/{playlistId}/permissions/grant","t":"playlists","s":"Grant edit permission (owner only)","d":"Returns \"User already has edit permission\" if already granted.","pub":false,"body":{"userId":1},"q":[],"ok":201,"res":{"message":"Edit permission granted to Jane Doe"},"err":{"400":"User not found","403":"Only playlist owner can grant edit permissions","404":"Playlist not found"}},{"m":"DELETE","p":"/api/playlists/{playlistId}/permissions/revoke/{userId}","t":"playlists","s":"Revoke edit permission (owner only)","d":"Returns \"User does not have edit permission\" if not granted.","pub":false,"q":[],"ok":200,"res":{"message":"Edit permission revoked from Jane Doe"},"err":{"400":"User not found","403":"Only playlist owner can revoke edit permissions","404":"Playlist not found"}},{"m":"POST","p":"/api/playlists/{playlistId}/invite","t":"playlists","s":"Invite a user to a private playlist (editors)","d":"The invitee sees it in /api/home notifications and gets edit rights on accept.","pub":false,"body":{"username":"janedoe"},"q":[],"ok":201,"res":{"message":"Invitation sent successfully"},"err":{"400":"Cannot invite users to public playlists. | Cannot invite yourself | User not found | User already has access to this playlist | User already has a pending invite","403":"Only owner or collaborators can invite users","404":"Playlist not found"}},{"m":"POST","p":"/api/playlists/{playlistId}/accept-invite","t":"playlists","s":"Accept my invite (become collaborator + follower)","d":"","pub":false,"q":[],"ok":201,"res":{"message":"Invitation accepted successfully"},"err":{"400":"No pending invite found","404":"Playlist not found"}},{"m":"POST","p":"/api/playlists/{playlistId}/decline-invite","t":"playlists","s":"Decline my invite","d":"","pub":false,"q":[],"ok":201,"res":{"message":"Invitation declined"},"err":{"400":"No pending invite found","404":"Playlist not found"}},{"m":"POST","p":"/api/devices/register","t":"devices","s":"Register (or re-claim) this device","d":"","pub":false,"body":{"deviceId":"device-1234","name":"My Phone","platform":"Android","appVersion":"1.0.0"},"q":[],"ok":201,"res":{"message":"Device registered","deviceId":"device-1234","name":"My Phone","platform":"Android","appVersion":"1.0.0","lastSeenAt":"2026-09-20T20:00:00.000Z","delegates":[{"id":2,"name":"Jane Doe","email":"jane@example.com"}]},"err":{}},{"m":"GET","p":"/api/devices/my-devices","t":"devices","s":"List my devices","d":"","pub":false,"q":[],"ok":200,"res":[{"deviceId":"device-1234","name":"My Phone","platform":"Android","appVersion":"1.0.0","lastSeenAt":"2026-09-20T20:00:00.000Z","delegates":[{"id":2,"name":"Jane Doe","email":"jane@example.com"}]}],"err":{}},{"m":"GET","p":"/api/devices/delegated-to-me","t":"devices","s":"Devices other users let me control","d":"","pub":false,"q":[],"ok":200,"res":[{"deviceId":"device-5678","name":"Jane's Phone","owner":{"id":2,"name":"Jane Doe"}}],"err":{}},{"m":"POST","p":"/api/devices/{deviceId}/delegate","t":"devices","s":"Let a friend control my device","d":"","pub":false,"body":{"email":"friend@example.com"},"q":[],"ok":201,"res":{"message":"Jane Doe can now control \"My Phone\""},"err":{"400":"You already control your own device | Jane Doe already has control of this device","404":"Device not found for this account | No user found with that email"}},{"m":"DELETE","p":"/api/devices/{deviceId}/delegate/{userId}","t":"devices","s":"Revoke a friend's control","d":"","pub":false,"q":[],"ok":200,"res":{"message":"Control revoked"},"err":{"400":"That user does not have control of this device","404":"Device not found for this account"}},{"m":"POST","p":"/api/devices/{deviceId}/control/{action}","t":"devices","s":"Send a playback command to a device","d":"Allowed for the owner and delegates. The device picks it up via pending-commands.","pub":false,"q":[],"ok":201,"res":{"message":"pause sent to My Phone"},"err":{"400":"Invalid command. Must be one of play, pause, skip | You do not have control of this device","404":"Device not found"}},{"m":"GET","p":"/api/devices/{deviceId}/pending-commands","t":"devices","s":"Fetch (and consume) queued commands for my device","d":"Oldest first. Returned commands are marked consumed and won't be returned again.","pub":false,"q":[],"ok":200,"res":{"commands":[{"command":"pause","issuedBy":{"id":2,"name":"Jane Doe"},"createdAt":"2026-09-20T20:01:00.000Z"}]},"err":{"404":"Device not found for this account"}},{"m":"GET","p":"/api/home","t":"home","s":"Home screen feed","d":"Aggregates the user's playlists, Jamendo recommendations (based on the user's `genres`), popular songs/artists, the 3 first public events and pending invites. Each section falls back to an empty list if its source fails. `recentlyListened` is random songs for now.","pub":false,"q":[],"ok":200,"res":{"userPlaylists":{"results":[{"id":1,"name":"My Playlist","owner":{"id":1,"name":"John Doe","avatar":"default_avatar.png"},"trackCount":4,"followersCount":2,"isPublic":true,"userRole":["owner"],"canEdit":true,"createdAt":"2026-09-01T10:00:00.000Z"}]},"recommendedSongs":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}],"recentlyListened":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}],"popularSongs":[{"id":"1204669","name":"Wake Up","duration":204,"artist_id":"7872","artist_name":"Jekk","album_name":"Dreams","album_id":"145270","position":1,"releasedate":"2015-03-02","album_image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","audio":"https://prod-1.storage.jamendo.com/?trackid=1204669&format=mp31","audiodownload":"https://prod-1.storage.jamendo.com/download/track/1204669/mp32/","image":"https://usercontent.jamendo.com?type=album&id=145270&width=300","shareurl":"https://www.jamendo.com/track/1204669","audiodownload_allowed":true}],"popularArtists":[{"id":"7872","name":"Jekk","website":"https://jekk.example","joindate":"2008-11-20","image":"https://usercontent.jamendo.com?type=artist&id=7872&width=300","shareurl":"https://www.jamendo.com/artist/7872"}],"events":[{"id":3,"title":"Friday Night Jam","organizer":"John Doe","location":"E1","attendeeCount":5,"eventStartTime":"2026-09-20T20:00:00.000Z","isPublic":true}],"notifications":{"eventNotifications":[{"eventId":3,"eventTitle":"Friday Night Jam","inviterId":2,"inviterName":"Jane Doe","invitedRole":"attendee","type":"event_invite","createdAt":"2026-09-18T12:00:00.000Z"}],"playlistNotifications":[{"playlistId":1,"playlistName":"My Playlist","inviterId":2,"inviterName":"Jane Doe","invitedAt":"2026-09-18T12:00:00.000Z","message":"Jane Doe has invited you to My Playlist","note":"You will get edit permissions when you accept"}]}},"err":{}}];
+
+// ---- diagram geometry -------------------------------------------------------
+const Y1 = 112, Y2 = 312, BUS = 222;
+const NODES = {
+  client:   { x: 60,  y: Y1, t: 'Client', sub: 'web / Android' },
+  log:      { x: 200, y: Y1, t: 'Activity log', sub: 'middleware' },
+  router:   { x: 310, y: Y1, t: 'Router', sub: '/api prefix' },
+  guard:    { x: 420, y: Y1, t: 'Auth guard', sub: 'JwtAuthGuard' },
+  throttle: { x: 530, y: Y1, t: 'Rate limit', sub: '5 / min / IP' },
+  pipe:     { x: 640, y: Y1, t: 'Validation', sub: 'DTO checks' },
+  ctrl:     { x: 750, y: Y1, t: 'Controller', sub: '*.controller.ts' },
+  svc:      { x: 880, y: Y1, t: 'Service', sub: '*.service.ts' },
+  db:       { x: 330, y: Y2, t: 'PostgreSQL', sub: 'TypeORM', res: 1 },
+  redis:    { x: 440, y: Y2, t: 'Redis', sub: '1 h cache', res: 1 },
+  jamendo:  { x: 550, y: Y2, t: 'Jamendo', sub: 'music API', res: 1 },
+  google:   { x: 660, y: Y2, t: 'Google', sub: 'token check', res: 1 },
+  mail:     { x: 770, y: Y2, t: 'Gmail SMTP', sub: 'nodemailer', res: 1 },
+  socket:   { x: 880, y: Y2, t: 'Socket.IO', sub: 'playlist room', res: 1 },
+  others:   { x: 60,  y: Y2, t: 'Other clients', sub: 'same playlist', res: 1 },
+};
+const W = 100, H = 50;
+const svgNS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs, parent) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; };
+
+const wires = document.getElementById('wires'), nodesG = document.getElementById('nodes');
+el('line', { class: 'wire', x1: 60, y1: Y1, x2: 880, y2: Y1 }, wires);
+el('line', { class: 'wire', x1: 880, y1: Y1, x2: 880, y2: BUS }, wires);
+el('line', { class: 'wire', x1: 330, y1: BUS, x2: 880, y2: BUS }, wires);
+for (const k of ['db', 'redis', 'jamendo', 'google', 'mail', 'socket']) el('line', { class: 'wire', x1: NODES[k].x, y1: BUS, x2: NODES[k].x, y2: Y2 }, wires);
+el('polyline', { class: 'wire dash', points: `880,${Y2} 880,372 60,372 60,${Y2}` }, wires);
+for (const [k, n] of Object.entries(NODES)) {
+  const g = el('g', { class: 'node' + (n.res ? ' res' : ''), id: 'n-' + k }, nodesG);
+  el('rect', { x: n.x - W / 2, y: n.y - H / 2, width: W, height: H, rx: 7 }, g);
+  el('text', { x: n.x, y: n.y - 3, 'text-anchor': 'middle' }, g).textContent = n.t;
+  el('text', { class: 'sub', x: n.x, y: n.y + 13, 'text-anchor': 'middle' }, g).textContent = n.sub;
+}
+
+// ---- what each endpoint touches (read from the services) -------------------
+function resources(e) {
+  const p = e.p;
+  if (e.t === 'app') return [];
+  if (e.t === 'music') {
+    if (p.endsWith('/random-songs') || p === '/api/music/songs') return ['jamendo'];
+    if (p.endsWith('/related')) return ['db', 'redis', 'jamendo'];
+    return ['redis', 'jamendo'];
+  }
+  if (e.t === 'home') return ['db', 'redis', 'jamendo'];
+  if (e.m === 'GET' && p.endsWith('/tracks')) return ['db', 'redis', 'jamendo'];
+  if (e.t === 'playlists' && /\/tracks\/(\{trackId\}\/(add|remove)|reorder)$/.test(p)) return ['db', 'socket'];
+  if (/\/(create|resend-verification-email|password-reset)$/.test(p) && e.t === 'auth') return ['db', 'mail'];
+  if (/social-(login|link)$/.test(p)) return ['google', 'db'];
+  return ['db'];
+}
+const throttled = (e) => '429' in e.err;
+const hasInput = (e) => e.body !== undefined || e.q.length > 0;
+
+const RES_TEXT = {
+  db: 'reads / writes PostgreSQL (TypeORM). Event and playlist writes run inside <code>mutate()</code> with a row lock',
+  redis: 'checks the Redis cache for this Jamendo query',
+  jamendo: 'calls the Jamendo API (only on a cache miss, retried up to 3× on empty results)',
+  google: 'asks Google to confirm the token and return the account (id, e-mail, name)',
+  mail: 'sends an e-mail through Gmail SMTP',
+  socket: 'after the DB commit, emits <code>update</code> to the Socket.IO room <code>playlist_&lt;id&gt;</code>',
+};
+const STATUS_TEXT = { 200: 'OK', 201: 'Created', 400: 'Bad Request', 401: 'Unauthorized', 402: 'Payment Required', 403: 'Forbidden', 404: 'Not Found', 409: 'Conflict', 429: 'Too Many Requests', 502: 'Bad Gateway' };
+
+// ---- outcomes ---------------------------------------------------------------
+function outcomesFor(e) {
+  const list = [{ code: e.ok, msg: 'Success' }];
+  if (!e.pub) list.push({ code: 401, msg: 'Missing, expired or revoked token', at: 'guard' });
+  if (throttled(e)) list.push({ code: 429, msg: e.err[429], at: 'throttle' });
+  if (e.body !== undefined) list.push({ code: 400, msg: 'Body failed DTO validation (message is a string[])', at: 'pipe', validation: true });
+  for (const [c, msg] of Object.entries(e.err)) if (c !== '429') list.push({ code: +c, msg, at: c === '502' ? 'jamendo' : 'svc' });
+  return list;
+}
+
+// ---- build the route + narration for one run --------------------------------
+function plan(e, out) {
+  const steps = []; // { node, text, skip, fail }
+  const fail = out.code >= 400;
+  const push = (node, text, extra = {}) => steps.push({ node, text, ...extra });
+  push('client', `Client sends <code>${e.m} ${e.p}</code>${e.pub ? '' : ' with <code>Authorization: Bearer &lt;access token&gt;</code>'}.`);
+  push('log', 'Activity log middleware starts watching the request (the row is written after the response).');
+  push('router', 'Router strips the <code>/api</code> prefix and finds the controller method.');
+  if (out.at === 'guard') { push('guard', `JwtAuthGuard: no valid token → <b>401</b>. ${out.msg}.`, { fail: 1 }); return steps; }
+  push('guard', e.pub ? 'JwtAuthGuard: route is <code>@Public()</code>. A token is read if present but not required.' : 'JwtAuthGuard: verifies the JWT (signature, <code>type: access</code>, <code>tokenVersion</code>) and loads the user.');
+  if (throttled(e)) {
+    if (out.at === 'throttle') { push('throttle', `ThrottlerGuard: more than 5 calls this minute from this IP → <b>429</b>.`, { fail: 1 }); return steps; }
+    push('throttle', 'ThrottlerGuard: under 5 calls/min from this IP, continue.');
+  } else push('throttle', 'No rate limit on this route.', { skip: 1 });
+  if (out.at === 'pipe') { push('pipe', 'ValidationPipe: the body does not match the DTO → <b>400</b> with every problem listed.', { fail: 1 }); return steps; }
+  if (hasInput(e)) push('pipe', `ValidationPipe checks ${e.body !== undefined ? 'the JSON body against its DTO (unknown fields dropped)' : 'and converts the query/path params'}.`);
+  else push('pipe', 'Nothing to validate (no body).', { skip: 1 });
+  push('ctrl', 'Controller method runs and hands off to the service.');
+  push('svc', 'Service applies the business rules (permissions, limits, roles).');
+  const res = resources(e);
+  for (const r of res) {
+    if (r === 'socket' && fail) break;
+    if (out.at === 'jamendo' && r === 'jamendo') { push('jamendo', `Jamendo did not answer → <b>502</b>. ${out.msg}.`, { fail: 1, res: 1 }); return steps; }
+    push(r, `Service ${RES_TEXT[r]}.`, { res: 1 });
+    if (fail && out.at === 'svc' && r === 'db') break;
+  }
+  if (fail && out.at === 'svc') push('svc', `Service throws → <b>${out.code}</b>: ${out.msg}.`, { fail: 1 });
+  return steps;
+}
+
+// ---- animation --------------------------------------------------------------
+const packet = document.getElementById('packet'), statusT = document.getElementById('status');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let runId = 0;
+const sleep = (ms) => new Promise((r) => setTimeout(r, reduce ? 0 : ms));
+function move(from, to, id) {
+  return new Promise((resolve) => {
+    if (reduce) { packet.setAttribute('cx', to[0]); packet.setAttribute('cy', to[1]); return resolve(); }
+    const d = Math.hypot(to[0] - from[0], to[1] - from[1]), dur = Math.max(140, d * 1.5), t0 = performance.now();
+    const tick = (t) => {
+      if (id !== runId) return resolve();
+      const k = Math.min(1, (t - t0) / dur), e = k < .5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      packet.setAttribute('cx', from[0] + (to[0] - from[0]) * e);
+      packet.setAttribute('cy', from[1] + (to[1] - from[1]) * e);
+      k < 1 ? requestAnimationFrame(tick) : resolve();
+    };
+    requestAnimationFrame(tick);
+  });
+}
+const pos = () => [+packet.getAttribute('cx'), +packet.getAttribute('cy')];
+async function goTo(node, id) {
+  const n = NODES[node], [x, y] = pos();
+  // Every trip to or between services runs along the bus line, never across the boxes.
+  if (n.y === Y2) { await move([x, y], [x, BUS], id); await move([x, BUS], [n.x, BUS], id); await move([n.x, BUS], [n.x, Y2], id); }
+  else if (n.y === Y1 && y === Y2) { await move([x, y], [x, BUS], id); await move([x, BUS], [880, BUS], id); await move([880, BUS], [880, Y1], id); await move([880, Y1], [n.x, Y1], id); }
+  else await move([x, y], [n.x, n.y], id);
+}
+function resetDiagram() {
+  document.querySelectorAll('.node').forEach((g) => g.classList.remove('lit', 'fail', 'skip'));
+  statusT.textContent = ''; packet.setAttribute('opacity', 0);
+  packet.setAttribute('cx', 60); packet.setAttribute('cy', Y1);
+}
+const nodeEl = (k) => document.getElementById('n-' + k);
+
+async function run(e, out) {
+  const id = ++runId;
+  resetDiagram();
+  const trace = document.getElementById('trace'); trace.innerHTML = '';
+  const steps = plan(e, out);
+  const used = new Set(steps.map((s) => s.node));
+  for (const k of ['db', 'redis', 'jamendo', 'google', 'mail', 'socket', 'others']) if (!used.has(k)) nodeEl(k).classList.add('skip');
+  packet.setAttribute('opacity', 1);
+  packet.style.fill = 'var(--accent)';
+  for (const s of steps) {
+    if (id !== runId) return;
+    await goTo(s.node, id);
+    const li = document.createElement('li'); li.innerHTML = s.text; if (s.fail) li.className = 'fail'; trace.appendChild(li);
+    nodeEl(s.node).classList.add(s.fail ? 'fail' : s.skip ? 'skip' : 'lit');
+    await sleep(s.res ? 420 : 260);
+  }
+  const fail = out.code >= 400;
+  const color = fail ? 'var(--bad)' : 'var(--ok)';
+  packet.style.fill = color;
+  if (id !== runId) return;
+  await goTo('client', id);
+  statusT.textContent = `${out.code} ${STATUS_TEXT[out.code] || ''}`; statusT.style.fill = color;
+  const li = document.createElement('li');
+  li.innerHTML = fail ? `Client receives <code>{ statusCode: ${out.code}, message, error }</code>.` : `Client receives <b>${out.code}</b> with the JSON shown below.`;
+  if (fail) li.className = 'fail'; trace.appendChild(li);
+  nodeEl('log').classList.add('lit');
+  const li2 = document.createElement('li'); li2.innerHTML = 'Activity log writes one row to <code>action_logs</code> (user, path, status, X-Platform / X-Device-Model / X-App-Version).'; trace.appendChild(li2);
+  if (!fail && resources(e).includes('socket')) {
+    packet.style.fill = 'var(--accent)';
+    await move([60, Y1], [880, Y1], id); await move([880, Y1], [880, Y2], id);
+    await move([880, Y2], [880, 372], id); await move([880, 372], [60, 372], id); await move([60, 372], [60, Y2], id);
+    nodeEl('others').classList.remove('skip'); nodeEl('others').classList.add('lit');
+    const li3 = document.createElement('li'); li3.innerHTML = 'Everyone with this playlist open gets <code>update { event, tracks, trackId }</code> and refreshes.'; trace.appendChild(li3);
+  }
+  await sleep(500);
+  if (id === runId) packet.setAttribute('opacity', 0);
+  return id;
+}
+
+// ---- UI ---------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function json(v) {
+  if (v === undefined) return '';
+  return esc(JSON.stringify(v, null, 2))
+    .replace(/(&quot;|")([^"\n]*?)"(?=:)/g, '<span class="k">"$2"</span>')
+    .replace(/: "([^"\n]*)"/g, ': <span class="s">"$1"</span>')
+    .replace(/: (-?\d+\.?\d*|true|false|null)/g, ': <span class="n">$1</span>');
+}
+let current = null, outcome = null;
+
+function select(e, autoplay) {
+  current = e;
+  document.querySelectorAll('.ep').forEach((b) => b.setAttribute('aria-current', b._ep === e));
+  $('cur-m').textContent = e.m; $('cur-m').className = 'm m-' + e.m;
+  $('cur-p').textContent = e.p; $('cur-s').textContent = e.s;
+  $('cur-d').innerHTML = esc(e.d).replace(/`([^`]+)`/g, '<code>$1</code>'); $('cur-d').hidden = !e.d;
+  const tags = [e.pub ? ['open', 'Public (token optional)'] : ['lock', 'Bearer token required'], ['', 'tag: ' + e.t]];
+  if (throttled(e)) tags.push(['limit', 'Rate-limited 5/min']);
+  $('cur-tags').innerHTML = tags.map(([c, t]) => `<span class="tag ${c}">${t}</span>`).join('');
+  let req = `${e.m} ${e.p}${e.q.length ? '?' + e.q.map((q) => q.replace('?', '') + '=…').join('&') : ''}\n`;
+  if (!e.pub) req += 'Authorization: Bearer <access token>\n';
+  if (e.body !== undefined) req += 'Content-Type: application/json\n\n' + JSON.stringify(e.body, null, 2);
+  $('req').innerHTML = esc(req.trimEnd()).replace(/^(GET|POST|PUT|DELETE)/, (m) => `<span class="m m-${m}">${m}</span>`);
+  const params = (e.p.match(/\{(\w+)\}/g) || []).map((s) => s.slice(1, -1));
+  const optQ = e.q.filter((q) => q.endsWith('?')).map((q) => q.slice(0, -1));
+  $('req-note').textContent = [params.length && `Path params: ${params.join(', ')}.`, optQ.length && `Optional query: ${optQ.join(', ')}.`].filter(Boolean).join(' ');
+  const outs = outcomesFor(e);
+  outcome = outs[0];
+  $('outcomes').innerHTML = '';
+  outs.forEach((o, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'outcome ' + (o.code < 400 ? 'good' : 'err'); b.textContent = o.code;
+    b.title = o.msg; b.setAttribute('aria-pressed', i === 0);
+    b.onclick = () => { outcome = o; $('outcomes').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', x === b)); showResponse(); stopScenario(); run(current, outcome); };
+    $('outcomes').appendChild(b);
+  });
+  $('errs').innerHTML = outs.slice(1).map((o) => `<li><b>${o.code}</b>${esc(o.msg)}</li>`).join('');
+  $('errs-label').hidden = outs.length < 2;
+  showResponse();
+  if (autoplay) return run(e, outcome);
+  resetDiagram(); $('trace').innerHTML = '<li>Press Play to send this request.</li>';
+}
+function showResponse() {
+  const o = outcome, e = current;
+  $('res-code').textContent = `${o.code} ${STATUS_TEXT[o.code] || ''}`;
+  $('res-code').style.color = o.code >= 400 ? 'var(--bad)' : 'var(--ok)';
+  const body = o.code < 400 ? e.res
+    : o.validation ? { statusCode: 400, message: ['email must be an email', 'password must be longer than or equal to 8 characters'], error: 'Bad Request' }
+    : o.code === 401 ? { statusCode: 401, message: 'Unauthorized' }
+    : { statusCode: o.code, message: o.msg.split(' | ')[0], error: STATUS_TEXT[o.code] };
+  $('res').innerHTML = json(body);
+}
+
+// list
+const TAG_NAMES = { auth: 'Auth & profile', users: 'Users & friends', events: 'Events (track vote)', playlists: 'Playlists (live editor)', music: 'Music (Jamendo)', devices: 'Devices (control delegation)', home: 'Home', app: 'App' };
+function renderList(filter = '') {
+  const f = filter.trim().toLowerCase();
+  const list = $('list'); list.innerHTML = '';
+  for (const tag of Object.keys(TAG_NAMES)) {
+    const items = EP.filter((e) => e.t === tag && (!f || (e.m + ' ' + e.p + ' ' + e.s + ' ' + tag).toLowerCase().includes(f)));
+    if (!items.length) continue;
+    const h = document.createElement('div'); h.className = 'group label'; h.textContent = `${TAG_NAMES[tag]} · ${items.length}`; list.appendChild(h);
+    for (const e of items) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'ep'; b._ep = e;
+      b.setAttribute('aria-current', e === current);
+      b.innerHTML = `<span class="m m-${e.m}">${e.m}</span><span class="path">${esc(e.p.replace(/^\/api/, ''))}<span class="sum">${esc(e.s)}</span></span>`;
+      b.onclick = () => { stopScenario(); select(e, true); };
+      list.appendChild(b);
+    }
+  }
+  if (!list.children.length) list.innerHTML = '<p class="note" style="padding:12px 14px">No endpoint matches. Try a path word like “tracks” or a method like “DELETE”.</p>';
+}
+$('search').addEventListener('input', (ev) => renderList(ev.target.value));
+$('play').onclick = () => { stopScenario(); run(current, outcome); };
+
+// scenarios
+const find = (m, p) => EP.find((e) => e.m === m && e.p === p);
+const SCENARIOS = {
+  'Sign up & log in': [['POST', '/api/users/create'], ['GET', '/api/users/verify-email'], ['POST', '/api/users/login'], ['GET', '/api/users/profile']],
+  'Vote on the next track': [['GET', '/api/events'], ['POST', '/api/events/{eventId}/join'], ['GET', '/api/events/{eventId}/tracks'], ['POST', '/api/events/{eventId}/tracks/{trackId}/vote']],
+  'Edit a playlist together': [['POST', '/api/playlists/create'], ['POST', '/api/playlists/{playlistId}/tracks/{trackId}/add'], ['POST', '/api/playlists/{playlistId}/tracks/reorder']],
+  'Hand over the remote': [['POST', '/api/devices/register'], ['POST', '/api/devices/{deviceId}/delegate'], ['POST', '/api/devices/{deviceId}/control/{action}'], ['GET', '/api/devices/{deviceId}/pending-commands']],
+};
+let scenarioToken = 0;
+function stopScenario() { scenarioToken++; document.querySelectorAll('#scenarios .chip-btn').forEach((b) => b.setAttribute('aria-pressed', false)); }
+for (const [name, seq] of Object.entries(SCENARIOS)) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'chip-btn'; b.textContent = name; b.setAttribute('aria-pressed', false);
+  b.onclick = async () => {
+    stopScenario(); const tok = scenarioToken; b.setAttribute('aria-pressed', true);
+    for (const [m, p] of seq) {
+      const e = find(m, p); if (!e || tok !== scenarioToken) break;
+      await select(e, true); if (tok !== scenarioToken) break; await sleep(900);
+    }
+    if (tok === scenarioToken) b.setAttribute('aria-pressed', false);
+  };
+  $('scenarios').appendChild(b);
+}
+
+renderList();
+select(find('POST', '/api/playlists/{playlistId}/tracks/{trackId}/add'), false);
+// Complete at rest: show the full path of the default request lit up, then the user can press Play.
+(function staticPreview() {
+  const steps = plan(current, outcome);
+  for (const k of ['db', 'redis', 'jamendo', 'google', 'mail', 'socket']) if (!steps.some((s) => s.node === k)) nodeEl(k).classList.add('skip');
+  steps.forEach((s) => nodeEl(s.node).classList.add(s.skip ? 'skip' : 'lit'));
+  nodeEl('others').classList.add('lit');
+})();
+</script>

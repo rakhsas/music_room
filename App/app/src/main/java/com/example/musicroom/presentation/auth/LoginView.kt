@@ -69,6 +69,7 @@ fun LoginView(
     onLoginSuccess: () -> Unit,
     onSignUpClick: () -> Unit,
     onForgotPasswordClick: () -> Unit,
+    onOpenServerSettings: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     // ============================================================================
@@ -79,7 +80,16 @@ fun LoginView(
     var passwordVisible by remember { mutableStateOf(false) }
     
     val authState by viewModel.authState.collectAsState()
-    
+
+    // ============================================================================
+    // GOOGLE SIGN-IN SDK WIRING
+    // ============================================================================
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        viewModel.handleGoogleSignInResult(result.data)
+    }
+
     // ============================================================================
     // SIDE EFFECTS - Handle authentication results
     // ============================================================================
@@ -87,11 +97,6 @@ fun LoginView(
         when (authState) {
             is AuthState.LoginSuccess -> {
                 Log.d("LoginView", "✅ Login successful, navigating to home")
-                onLoginSuccess()
-                viewModel.clearState()
-            }
-            is AuthState.GoogleSignInSuccess -> {
-                Log.d("LoginView", "✅ Google Sign-In successful, navigating to home")
                 onLoginSuccess()
                 viewModel.clearState()
             }
@@ -107,6 +112,19 @@ fun LoginView(
             .fillMaxSize()
             .background(backgroundGradient)
     ) {
+        IconButton(
+            onClick = onOpenServerSettings,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 40.dp, end = 8.dp)
+        ) {
+            Icon(
+                Icons.Default.Settings,
+                contentDescription = "Server settings",
+                tint = Color.White.copy(alpha = 0.8f)
+            )
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -311,43 +329,11 @@ fun LoginView(
                         GoogleButton(
                             onClick = {
                                 Log.d("LoginView", "🔗 Google Sign-In button clicked")
-                                viewModel.signInWithGoogle("mock_google_id_token_${System.currentTimeMillis()}")
+                                googleSignInLauncher.launch(viewModel.getGoogleSignInIntent())
                             },
+                            enabled = authState !is AuthState.Loading,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    }
-                }
-                
-                // ================================================================
-                // ERROR DISPLAY SECTION
-                // ================================================================
-                if (authState is AuthState.Error) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = DarkError.copy(alpha = 0.2f)
-                        ),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Error,
-                                "Error",
-                                tint = DarkError,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = (authState as AuthState.Error).message,
-                                color = TextPrimary,
-                                fontSize = 14.sp
-                            )
-                        }
                     }
                 }
                 
@@ -355,10 +341,12 @@ fun LoginView(
                 // SIGN UP SECTION
                 // ================================================================
                 ModernSignUpSection(onSignUpClick = onSignUpClick)
-                
+
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
+
+        AuthErrorBanner(authState = authState, onDismiss = { viewModel.clearState() })
     }
 }
 

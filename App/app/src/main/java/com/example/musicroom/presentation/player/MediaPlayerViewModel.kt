@@ -42,7 +42,9 @@ class MediaPlayerViewModel @Inject constructor(
     val isPlayerReady: StateFlow<Boolean> = musicPlayerService.isPlayerReady
     val isShuffleEnabled: StateFlow<Boolean> = musicPlayerService.isShuffleEnabled
     val repeatMode: StateFlow<RepeatMode> = musicPlayerService.repeatMode
-    
+    val hasNext: StateFlow<Boolean> = musicPlayerService.hasNext
+    val hasPrevious: StateFlow<Boolean> = musicPlayerService.hasPrevious
+
     /**
      * Play a track with real audio from API
      */
@@ -50,6 +52,21 @@ class MediaPlayerViewModel @Inject constructor(
         viewModelScope.launch {
             musicPlayerService.playTrack(track)
         }
+    }
+
+    /** Play a track along with the list it was picked from, so Previous/Next can step through it. */
+    fun playQueue(tracks: List<Track>, startIndex: Int) {
+        viewModelScope.launch {
+            musicPlayerService.setQueueAndPlay(tracks, startIndex)
+        }
+    }
+
+    fun playNext() {
+        musicPlayerService.playNext()
+    }
+
+    fun playPrevious() {
+        musicPlayerService.playPrevious()
     }
     
     /**

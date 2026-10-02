@@ -4,13 +4,14 @@ package com.example.musicroom.data.models
  * Data class representing a user in the application
  *
  * @property id Unique identifier for the user
- * @property name Display name of the user
+ * @property fullName Display name of the user
+ * @property username Unique handle chosen at registration
  * @property photoUrl URL to the user's profile photo
  * @property email User's email address
  */
 data class User(
     val id: String,
-    val name: String,
+    val fullName: String,
     val username: String,
     val photoUrl: String,
     val email: String = "",

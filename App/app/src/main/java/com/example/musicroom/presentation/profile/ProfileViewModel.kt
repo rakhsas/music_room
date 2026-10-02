@@ -49,7 +49,8 @@ class ProfileViewModel @Inject constructor(
     }
     
     fun updateProfile(
-        name: String? = null,
+        fullName: String? = null,
+        userName: String? = null,
         bio: String? = null,
         dateOfBirth: String? = null,
         phoneNumber: String? = null,
@@ -66,7 +67,8 @@ class ProfileViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isUpdating = true, error = null)
             
             userProfileRepository.updateUserProfile(
-                name = name,
+                fullName = fullName,
+                userName = userName,
                 bio = bio,
                 dateOfBirth = dateOfBirth,
                 phoneNumber = phoneNumber,

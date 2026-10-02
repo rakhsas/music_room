@@ -106,9 +106,10 @@ fun ProfileScreen(
                     selectedSection = selectedSection,
                     onSectionSelected = { selectedSection = it },
                     onLogoutClick = { showLogoutDialog = true },
-                    onUpdateProfile = { name, bio, dateOfBirth, phoneNumber, musicPreferences, likedArtists, likedAlbums, likedSongs, genres ->
+                    onUpdateProfile = { fullName, userName, bio, dateOfBirth, phoneNumber, musicPreferences, likedArtists, likedAlbums, likedSongs, genres ->
                         viewModel.updateProfile(
-                            name = name,
+                            fullName = fullName,
+                            userName = userName,
                             bio = bio,
                             dateOfBirth = dateOfBirth,
                             phoneNumber = phoneNumber,
@@ -156,7 +157,8 @@ private fun ProfileContent(
     onSectionSelected: (ProfileSection?) -> Unit,
     onLogoutClick: () -> Unit,
     onUpdateProfile: (
-        name: String?,
+        fullName: String?,
+        userName: String?,
         bio: String?,
         dateOfBirth: String?,
         phoneNumber: String?,
@@ -195,11 +197,19 @@ private fun ProfileContent(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = userProfile.name.ifBlank { "Unknown User" },
+                text = userProfile.fullName.ifBlank { "Unknown User" },
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
+
+            if (userProfile.userName.isNotBlank()) {
+                Text(
+                    text = "@${userProfile.userName}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PrimaryPurple
+                )
+            }
 
             Text(
                 text = userProfile.email,
@@ -236,7 +246,7 @@ private fun ProfileContent(
         // Profile Sections
         ProfileSectionCard(
             title = "Public Information",
-            description = "Name and bio",
+            description = "Name, username and bio",
             icon = Icons.Default.Person,
             onClick = { onSectionSelected(ProfileSection.PUBLIC_INFO) }
         )
@@ -339,16 +349,17 @@ private fun ProfileContent(
                 when (section) {
                     ProfileSection.PUBLIC_INFO -> {
                         onUpdateProfile(
-                            updatedData["name"], 
-                            updatedData["bio"], 
+                            updatedData["fullName"],
+                            updatedData["username"],
+                            updatedData["bio"],
                             null, null, null, null, null, null, null
                         )
                     }
                     ProfileSection.FRIENDS_INFO -> {
                         onUpdateProfile(
-                            null, null, 
-                            updatedData["dateOfBirth"], 
-                            updatedData["phoneNumber"], 
+                            null, null, null,
+                            updatedData["dateOfBirth"],
+                            updatedData["phoneNumber"],
                             null, null, null, null, null
                         )
                     }
@@ -356,7 +367,7 @@ private fun ProfileContent(
                         val genres = updatedData["genres"]?.split(",")?.map { it.trim() }
                         val artists = updatedData["artists"]?.split(",")?.map { it.trim() }
                         onUpdateProfile(
-                            null, null, null, null,
+                            null, null, null, null, null,
                             genres, artists, null, null, genres
                         )
                     }
@@ -393,9 +404,16 @@ private fun EditDialog(
                 when (section) {
                     ProfileSection.PUBLIC_INFO -> {
                         OutlinedTextField(
-                            value = fields["name"] ?: "",
-                            onValueChange = { fields = fields.toMutableMap().apply { put("name", it) } },
+                            value = fields["fullName"] ?: "",
+                            onValueChange = { fields = fields.toMutableMap().apply { put("fullName", it) } },
                             label = { Text("Name") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = fields["username"] ?: "",
+                            onValueChange = { fields = fields.toMutableMap().apply { put("username", it) } },
+                            label = { Text("Username") },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -460,7 +478,8 @@ private fun EditDialog(
 private fun getInitialFields(section: ProfileSection, userProfile: UserProfile): Map<String, String> {
     return when (section) {
         ProfileSection.PUBLIC_INFO -> mapOf(
-            "name" to userProfile.name,
+            "fullName" to userProfile.fullName,
+            "username" to userProfile.userName,
             "bio" to userProfile.bio
         )
         ProfileSection.FRIENDS_INFO -> mapOf(

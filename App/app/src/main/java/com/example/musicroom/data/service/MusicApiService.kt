@@ -49,6 +49,7 @@ class MusicApiService @Inject constructor(
                     doInput = true
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "MusicRoom-Android-App")
+                    NetworkConfig.applyDeviceHeaders(this)
                     
                     // Add authentication token if available
                     tokenManager.getToken()?.let { token ->
@@ -88,6 +89,7 @@ class MusicApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("MusicAPI", "❌ Unauthorized")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Unauthorized"))
                     }
                     404 -> {
@@ -126,6 +128,7 @@ class MusicApiService @Inject constructor(
                     doInput = true
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "MusicRoom-Android-App")
+                    NetworkConfig.applyDeviceHeaders(this)
                     
                     // Add authentication token if available
                     tokenManager.getToken()?.let { token ->
@@ -190,6 +193,7 @@ class MusicApiService @Inject constructor(
                     doInput = true
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "MusicRoom-Android-App")
+                    NetworkConfig.applyDeviceHeaders(this)
                     
                     tokenManager.getToken()?.let { token ->
                         setRequestProperty("Authorization", "Bearer $token")
@@ -253,6 +257,7 @@ class MusicApiService @Inject constructor(
                     doInput = true
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("User-Agent", "MusicRoom-Android-App")
+                    NetworkConfig.applyDeviceHeaders(this)
 
                     // Add authentication token if available
                     tokenManager.getToken()?.let { token ->
@@ -296,6 +301,7 @@ class MusicApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("MusicAPI", "❌ Unauthorized")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Unauthorized"))
                     }
                     else -> {

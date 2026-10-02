@@ -7,6 +7,7 @@ import com.example.musicroom.data.models.EventOrganizer
 import com.example.musicroom.data.models.Track
 import com.example.musicroom.data.network.NetworkConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -52,7 +53,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -89,6 +91,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     else -> {
@@ -124,7 +127,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -161,6 +165,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     else -> {
@@ -227,11 +232,11 @@ class EventsApiService @Inject constructor(
                     put("title", request.title)
                     put("description", request.description ?: "")
                     put("location", request.location)
-                    put("event_start_time", request.event_start_time)
+                    put("eventStartTime", request.event_start_time)
                     if (!request.event_end_time.isNullOrBlank()) {
-                        put("event_end_time", request.event_end_time)
+                        put("eventEndTime", request.event_end_time)
                     }
-                    put("is_public", request.is_public)
+                    put("isPublic", request.is_public)
                 }.toString()
                 
                 Log.d("EventsAPI", "📤 Create event request body: $requestBody")
@@ -250,7 +255,8 @@ class EventsApiService @Inject constructor(
                     } else {
                         Log.w("EventsAPI", "⚠️ No authentication token available")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                         Log.d("EventsAPI", "🌐 Added CORS origin header for Codespaces")
@@ -353,6 +359,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized (401) - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required - please log in again"))
                     }
                     403 -> {
@@ -399,7 +406,8 @@ class EventsApiService @Inject constructor(
                     } else {
                         Log.w("EventsAPI", "⚠️ No authentication token available")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                         Log.d("EventsAPI", "🌐 Added CORS origin header for Codespaces")
@@ -461,6 +469,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized (401): $responseText")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("You need to be logged in to add tracks"))
                     }
                     403 -> {
@@ -508,7 +517,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -535,9 +545,9 @@ class EventsApiService @Inject constructor(
                 // Add specific logging before parsing
                 Log.d("EventsAPI", "🔍 Raw response analysis:")
                 val tempJson = JSONObject(responseText)
-                Log.d("EventsAPI", "   - Raw current_user_role value: '${tempJson.opt("current_user_role")}'")
-                Log.d("EventsAPI", "   - Is current_user_role null? ${tempJson.isNull("current_user_role")}")
-                Log.d("EventsAPI", "   - user_roles object: '${tempJson.opt("user_roles")}'")
+                Log.d("EventsAPI", "   - Raw currentUserRole value: '${tempJson.opt("currentUserRole")}'")
+                Log.d("EventsAPI", "   - Is currentUserRole null? ${tempJson.isNull("currentUserRole")}")
+                Log.d("EventsAPI", "   - userRoles object: '${tempJson.opt("userRoles")}'")
                 Log.d("EventsAPI", "   - songs array: '${tempJson.opt("songs")}'")
                 
                 when (responseCode) {
@@ -554,6 +564,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     403 -> {
@@ -597,7 +608,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -634,6 +646,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     403 -> {
@@ -665,9 +678,16 @@ class EventsApiService @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 Log.d("EventsAPI", "🎵 Fetching tracks with votes for event ID: $eventId")
-                
-                // Get tracks from the tracks endpoint
-                val tracksResult = getEventTracks(eventId)
+
+                // Get tracks from the tracks endpoint. The backend proxies this through Jamendo,
+                // which occasionally blips transiently (rate limit/timeout) - one retry clears up
+                // most of those instead of the event flashing "0 tracks" on every other open.
+                var tracksResult = getEventTracks(eventId)
+                if (tracksResult.isFailure) {
+                    Log.w("EventsAPI", "⚠️ Track fetch failed, retrying once: ${tracksResult.exceptionOrNull()?.message}")
+                    delay(500)
+                    tracksResult = getEventTracks(eventId)
+                }
                 if (tracksResult.isFailure) {
                     return@withContext Result.failure(tracksResult.exceptionOrNull() ?: Exception("Failed to get tracks"))
                 }
@@ -698,6 +718,24 @@ class EventsApiService @Inject constructor(
     }
     
     /**
+     * Lightweight vote refresh: hits only the event-detail endpoint (DB-backed, no Jamendo call)
+     * to get current vote counts/hasUserVoted per track. Use this after voting/unvoting instead
+     * of [getEventTracksWithVotes] - track metadata (title/artist/art/audio) never changes from a
+     * vote, so there's no reason to re-fetch it from Jamendo on every tap.
+     */
+    suspend fun getEventVoteData(eventId: String): Result<Map<String, Pair<Int, Boolean>>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val voteData = getTrackVoteData("${NetworkConfig.BASE_URL}/api/events/$eventId/")
+                Result.success(voteData)
+            } catch (e: Exception) {
+                Log.e("EventsAPI", "❌ Error fetching vote data", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Get vote data for tracks from event details response
      * Returns map of track_id to Pair(vote_count, user_has_voted)
      */
@@ -712,7 +750,8 @@ class EventsApiService @Inject constructor(
                 if (token != null) {
                     setRequestProperty("Authorization", "Bearer $token")
                 }
-                
+                NetworkConfig.applyDeviceHeaders(this)
+
                 if (NetworkConfig.isCodespaces()) {
                     setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                 }
@@ -731,11 +770,10 @@ class EventsApiService @Inject constructor(
             
             for (i in 0 until songsArray.length()) {
                 val songJson = songsArray.getJSONObject(i)
-                val trackId = songJson.optString("track_id")
-                val voteCount = songJson.optInt("vote_count", 0)
-                // TODO: Add user vote status check when backend provides it
-                val hasUserVoted = false // Placeholder until backend provides this info
-                
+                val trackId = songJson.optString("trackId")
+                val voteCount = songJson.optInt("voteCount", 0)
+                val hasUserVoted = songJson.optBoolean("hasUserVoted", false)
+
                 if (trackId.isNotBlank()) {
                     voteData[trackId] = Pair(voteCount, hasUserVoted)
                 }
@@ -770,7 +808,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -803,6 +842,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     403 -> {
@@ -846,7 +886,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -883,6 +924,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     403 -> {
@@ -926,7 +968,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -963,6 +1006,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     403 -> {
@@ -1006,7 +1050,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     if (NetworkConfig.isCodespaces()) {
                         setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
                     }
@@ -1047,6 +1092,7 @@ class EventsApiService @Inject constructor(
                     }
                     401 -> {
                         Log.e("EventsAPI", "❌ Unauthorized - token may be expired")
+                        tokenManager.notifySessionExpired()
                         Result.failure(Exception("Authentication required"))
                     }
                     403 -> {
@@ -1069,7 +1115,129 @@ class EventsApiService @Inject constructor(
             }
         }
     }
-    
+
+    /**
+     * Update an event's details (organizer/manager only)
+     */
+    suspend fun updateEvent(eventId: String, request: CreateEventRequest): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("EventsAPI", "✏️ Updating event $eventId")
+
+                val url = "${NetworkConfig.BASE_URL}/api/events/$eventId/update/"
+
+                val requestBody = JSONObject().apply {
+                    put("title", request.title)
+                    put("description", request.description ?: "")
+                    put("location", request.location)
+                    put("event_start_time", request.event_start_time)
+                    if (!request.event_end_time.isNullOrBlank()) {
+                        put("event_end_time", request.event_end_time)
+                    }
+                    put("is_public", request.is_public)
+                }.toString()
+
+                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "PUT"
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                    doOutput = true
+
+                    val token = tokenManager.getToken()
+                    if (token != null) {
+                        setRequestProperty("Authorization", "Bearer $token")
+                    }
+                    NetworkConfig.applyDeviceHeaders(this)
+
+                    if (NetworkConfig.isCodespaces()) {
+                        setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
+                    }
+
+                    connectTimeout = NetworkConfig.Settings.CONNECT_TIMEOUT.toInt()
+                    readTimeout = NetworkConfig.Settings.READ_TIMEOUT.toInt()
+                }
+
+                OutputStreamWriter(connection.outputStream).use { writer ->
+                    writer.write(requestBody)
+                    writer.flush()
+                }
+
+                val responseCode = connection.responseCode
+                val responseText = if (responseCode in 200..299) {
+                    BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                } else {
+                    BufferedReader(InputStreamReader(connection.errorStream ?: connection.inputStream)).use { it.readText() }
+                }
+
+                Log.d("EventsAPI", "📨 Update event response ($responseCode): $responseText")
+
+                when (responseCode) {
+                    200 -> Result.success(JSONObject(responseText).optString("message", "Event updated successfully"))
+                    400 -> Result.failure(Exception(JSONObject(responseText).optString("error", "Unable to update event")))
+                    401 -> { tokenManager.notifySessionExpired(); Result.failure(Exception("Authentication required")) }
+                    403 -> Result.failure(Exception("You don't have permission to edit this event"))
+                    404 -> Result.failure(Exception("Event not found"))
+                    else -> Result.failure(Exception("Failed to update event: HTTP $responseCode"))
+                }
+            } catch (e: Exception) {
+                Log.e("EventsAPI", "❌ Network error updating event", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Delete an event (organizer only)
+     */
+    suspend fun deleteEvent(eventId: String): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("EventsAPI", "🗑️ Deleting event $eventId")
+
+                val url = "${NetworkConfig.BASE_URL}/api/events/$eventId/delete/"
+
+                val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "DELETE"
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+
+                    val token = tokenManager.getToken()
+                    if (token != null) {
+                        setRequestProperty("Authorization", "Bearer $token")
+                    }
+                    NetworkConfig.applyDeviceHeaders(this)
+
+                    if (NetworkConfig.isCodespaces()) {
+                        setRequestProperty("Origin", NetworkConfig.getCurrentBaseUrl())
+                    }
+
+                    connectTimeout = NetworkConfig.Settings.CONNECT_TIMEOUT.toInt()
+                    readTimeout = NetworkConfig.Settings.READ_TIMEOUT.toInt()
+                }
+
+                val responseCode = connection.responseCode
+                val responseText = if (responseCode in 200..299) {
+                    BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                } else {
+                    BufferedReader(InputStreamReader(connection.errorStream ?: connection.inputStream)).use { it.readText() }
+                }
+
+                Log.d("EventsAPI", "📨 Delete event response ($responseCode): $responseText")
+
+                when (responseCode) {
+                    200 -> Result.success(JSONObject(responseText).optString("message", "Event deleted successfully"))
+                    401 -> { tokenManager.notifySessionExpired(); Result.failure(Exception("Authentication required")) }
+                    403 -> Result.failure(Exception("Only the organizer can delete this event"))
+                    404 -> Result.failure(Exception("Event not found"))
+                    else -> Result.failure(Exception("Failed to delete event: HTTP $responseCode"))
+                }
+            } catch (e: Exception) {
+                Log.e("EventsAPI", "❌ Network error deleting event", e)
+                Result.failure(e)
+            }
+        }
+    }
+
     /**
      * Get all users for invitation
      */
@@ -1089,7 +1257,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     connectTimeout = 30000
                     readTimeout = 30000
                 }
@@ -1137,14 +1306,15 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     connectTimeout = 30000
                     readTimeout = 30000
                 }
                 
                 // Create request body matching your API format
                 val requestBody = JSONObject().apply {
-                    put("user_id", userId.toInt())
+                    put("userId", userId.toInt())
                     put("role", role)
                 }
                 
@@ -1161,7 +1331,7 @@ class EventsApiService @Inject constructor(
                 Log.d("EventsAPI", "📡 Invite API Response Code: $responseCode")
                 
                 when (responseCode) {
-                    HttpURLConnection.HTTP_OK -> {
+                    HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_CREATED -> {
                         val responseText = connection.inputStream.bufferedReader().use { it.readText() }
                         Log.d("EventsAPI", "📄 Invite API Response: $responseText")
                         
@@ -1217,7 +1387,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     connectTimeout = 30000
                     readTimeout = 30000
                 }
@@ -1225,7 +1396,7 @@ class EventsApiService @Inject constructor(
                 val responseCode = connection.responseCode
                 Log.d("EventsAPI", "📡 Accept Invite API Response Code: $responseCode")
                 
-                if (responseCode == HttpURLConnection.HTTP_OK) {
+                if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
                     val responseText = connection.inputStream.bufferedReader().use { it.readText() }
                     Log.d("EventsAPI", "📄 Accept Invite API Response: $responseText")
                     
@@ -1265,7 +1436,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     connectTimeout = 30000
                     readTimeout = 30000
                 }
@@ -1273,7 +1445,7 @@ class EventsApiService @Inject constructor(
                 val responseCode = connection.responseCode
                 Log.d("EventsAPI", "📡 Decline Invite API Response Code: $responseCode")
                 
-                if (responseCode == HttpURLConnection.HTTP_OK) {
+                if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
                     val responseText = connection.inputStream.bufferedReader().use { it.readText() }
                     Log.d("EventsAPI", "📄 Decline Invite API Response: $responseText")
                     
@@ -1313,7 +1485,8 @@ class EventsApiService @Inject constructor(
                     if (token != null) {
                         setRequestProperty("Authorization", "Bearer $token")
                     }
-                    
+                    NetworkConfig.applyDeviceHeaders(this)
+
                     connectTimeout = 30000
                     readTimeout = 30000
                 }
@@ -1371,13 +1544,13 @@ class EventsApiService @Inject constructor(
                     description = eventJson.optString("description", ""), // Not in API response
                     location = eventJson.optString("location"),
                     organizer = organizer,
-                    attendee_count = eventJson.optInt("attendee_count", 0),
-                    track_count = eventJson.optInt("track_count", 0), // Not in API response
-                    is_public = eventJson.optBoolean("is_public", true),
-                    event_start_time = eventJson.optString("event_start_time"),
-                    event_end_time = eventJson.optString("event_end_time"), // Not in API response
-                    image_url = eventJson.optString("image_url"), // Not in API response
-                    created_at = eventJson.optString("created_at"), // Not in API response
+                    attendeeCount = eventJson.optInt("attendeeCount", 0),
+                    trackCount = eventJson.optInt("trackCount", 0), // Not in API response
+                    is_public = eventJson.optBoolean("isPublic", true),
+                    event_start_time = eventJson.optString("eventStartTime"),
+                    event_end_time = eventJson.optString("eventEndTime"), // Not in API response
+                    image_url = eventJson.optString("imageUrl"), // Not in API response
+                    created_at = eventJson.optString("createdAt"), // Not in API response
                     current_user_role = null // Public events don't have user role info
                 )
                 
@@ -1406,32 +1579,33 @@ class EventsApiService @Inject constructor(
             for (i in 0 until eventsArray.length()) {
                 val eventJson = eventsArray.getJSONObject(i)
                 
-                // For "my events", the user_role field indicates the current user's role
-                val userRole = eventJson.optString("user_role").takeIf { it.isNotBlank() }
-                
-                // Parse organizer - could be different from current user
+                // For "my events", the userRole field indicates the current user's role
+                val userRole = eventJson.optString("userRole").takeIf { it.isNotBlank() }
+
+                // Parse organizer - the backend sends this as a plain name string here, not an object
                 val organizerJson = eventJson.optJSONObject("organizer")
                 val organizer = EventOrganizer(
                     id = organizerJson?.optString("id") ?: "",
-                    name = organizerJson?.optString("name") ?: 
-                          if (userRole == "owner") "You" else "Event Organizer", // Show "You" if current user is owner
+                    name = organizerJson?.optString("name")
+                        ?: eventJson.optString("organizer").takeIf { it.isNotBlank() }
+                        ?: if (userRole == "owner") "You" else "Event Organizer", // Show "You" if current user is owner
                     avatar = organizerJson?.optString("avatar")
                 )
-                
+
                 val event = Event(
                     id = eventJson.optString("id"),
                     title = eventJson.optString("title"),
                     description = eventJson.optString("description"),
                     location = eventJson.optString("location"),
                     organizer = organizer,
-                    attendee_count = eventJson.optInt("attendee_count", 0),
-                    track_count = eventJson.optInt("track_count", 0),
-                    is_public = eventJson.optBoolean("is_public", true),
-                    event_start_time = eventJson.optString("event_start_time"),
-                    event_end_time = eventJson.optString("event_end_time"),
-                    image_url = eventJson.optString("image_url"),
-                    created_at = eventJson.optString("created_at"),
-                    current_user_role = userRole // Map user_role to current_user_role
+                    attendeeCount = eventJson.optInt("attendeesCount", 0),
+                    trackCount = eventJson.optInt("trackCount", 0),
+                    is_public = eventJson.optBoolean("isPublic", true),
+                    event_start_time = eventJson.optString("startTime"),
+                    event_end_time = eventJson.optString("endTime"),
+                    image_url = eventJson.optString("imageUrl"),
+                    created_at = eventJson.optString("createdAt"),
+                    current_user_role = userRole // Map userRole to current_user_role
                 )
                 
                 events.add(event)
@@ -1463,33 +1637,33 @@ class EventsApiService @Inject constructor(
             
             // Parse songs array to get track count
             val songsArray = eventJson.optJSONArray("songs")
-            val trackCount = songsArray?.length() ?: eventJson.optInt("track_count", 0)
-            
+            val trackCount = songsArray?.length() ?: eventJson.optInt("trackCount", 0)
+
             // Handle current_user_role properly - check if it's actually null in JSON
-            val currentUserRole = if (eventJson.isNull("current_user_role")) {
+            val currentUserRole = if (eventJson.isNull("currentUserRole")) {
                 null
             } else {
-                eventJson.optString("current_user_role").takeIf { it.isNotBlank() }
+                eventJson.optString("currentUserRole").takeIf { it.isNotBlank() }
             }
-            
-            Log.d("EventsAPI", "🔍 Parsing current_user_role:")
-            Log.d("EventsAPI", "   - Raw JSON isNull: ${eventJson.isNull("current_user_role")}")
-            Log.d("EventsAPI", "   - Raw JSON value: '${eventJson.opt("current_user_role")}'")
+
+            Log.d("EventsAPI", "🔍 Parsing currentUserRole:")
+            Log.d("EventsAPI", "   - Raw JSON isNull: ${eventJson.isNull("currentUserRole")}")
+            Log.d("EventsAPI", "   - Raw JSON value: '${eventJson.opt("currentUserRole")}'")
             Log.d("EventsAPI", "   - Parsed role: '$currentUserRole'")
-            
+
             return Event(
                 id = eventJson.optString("id"),
                 title = eventJson.optString("title"),
                 description = eventJson.optString("description"),
                 location = eventJson.optString("location"),
                 organizer = organizer,
-                attendee_count = eventJson.optInt("attendee_count", 0),
-                track_count = trackCount, // Use actual songs array length if available
-                is_public = eventJson.optBoolean("is_public", true),
-                event_start_time = eventJson.optString("event_start_time"),
-                event_end_time = eventJson.optString("event_end_time"),
-                image_url = eventJson.optString("image_url"),
-                created_at = eventJson.optString("created_at"),
+                attendeeCount = eventJson.optInt("attendeeCount", 0),
+                trackCount = trackCount, // Use actual songs array length if available
+                is_public = eventJson.optBoolean("isPublic", true),
+                event_start_time = eventJson.optString("eventStartTime"),
+                event_end_time = eventJson.optString("eventEndTime"),
+                image_url = eventJson.optString("imageUrl"),
+                created_at = eventJson.optString("createdAt"),
                 current_user_role = currentUserRole
             )
             
@@ -1589,25 +1763,26 @@ class EventsApiService @Inject constructor(
                     Log.d("EventsAPI", "📋 Processing user $i: $userJson")
                     
                     val userId = userJson.optInt("id", -1)
-                    val userName = userJson.optString("name", "Unknown")
+                    val userFullName = userJson.optString("full_name", "Unknown")
+                    val userUsername = userJson.optString("username", "")
                     val userEmail = userJson.optString("email", "")
                     val userAvatar = userJson.optString("avatar", "")
-                    
+
                     if (userId == -1) {
                         Log.w("EventsAPI", "⚠️ User at index $i has invalid ID, skipping")
                         continue
                     }
-                    
+
                     val user = User(
                         id = userId.toString(),
-                        name = userName,
-                        username = userName, // Use name as username since API doesn't provide username
+                        fullName = userFullName,
+                        username = userUsername,
                         photoUrl = userAvatar,
                         email = userEmail
                     )
-                    
+
                     users.add(user)
-                    Log.d("EventsAPI", "👤 Successfully parsed user: ${user.name} (ID: ${user.id})")
+                    Log.d("EventsAPI", "👤 Successfully parsed user: ${user.fullName} (ID: ${user.id})")
                     
                 } catch (e: Exception) {
                     Log.e("EventsAPI", "❌ Error parsing user at index $i", e)
@@ -1697,7 +1872,7 @@ data class AddTrackToEventResponse(
  */
 data class User(
     val id: String,
-    val name: String,
+    val fullName: String,
     val username: String,
     val photoUrl: String,
     val email: String

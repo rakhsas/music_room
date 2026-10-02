@@ -71,6 +71,12 @@ fun MediaPlayerView(
     val isPlayerReady by viewModel.isPlayerReady.collectAsState()
     val isShuffleEnabled by viewModel.isShuffleEnabled.collectAsState()
     val repeatMode by viewModel.repeatMode.collectAsState()
+    val hasNext by viewModel.hasNext.collectAsState()
+    val hasPrevious by viewModel.hasPrevious.collectAsState()
+    val playingTrack by viewModel.currentTrack.collectAsState()
+    // Falls back to the nav-arg track until the service confirms playback (and for any field
+    // the queue's Track doesn't carry, since navigation only encodes a handful of fields).
+    val displayedTrack = playingTrack ?: track
     var isLiked by remember { mutableStateOf(false) }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
     var showAddToEventDialog by remember { mutableStateOf(false) }
@@ -110,14 +116,14 @@ fun MediaPlayerView(
             Spacer(modifier = Modifier.height(32.dp))
 
             // Album Art with glass effect
-            ModernAlbumArt(track = track)
-            
+            ModernAlbumArt(track = displayedTrack)
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             // Player status indicator
             PlayerStatusIndicator(
                 isPlayerReady = isPlayerReady,
-                trackTitle = track.title,
+                trackTitle = displayedTrack.title,
                 isPlaying = isPlaying
             )
 
@@ -134,7 +140,7 @@ fun MediaPlayerView(
 
             // Track info with modern card
             ModernTrackInfo(
-                track = track,
+                track = displayedTrack,
                 isLiked = isLiked,
                 onLikeToggle = { isLiked = !isLiked }
             )
@@ -155,35 +161,37 @@ fun MediaPlayerView(
                 isPlaying = isPlaying,
                 isShuffleEnabled = isShuffleEnabled,
                 repeatMode = repeatMode,
+                hasPrevious = hasPrevious,
+                hasNext = hasNext,
                 onPlayPause = {
                     if (isPlaying) viewModel.pause() else viewModel.play()
                 },
                 onShuffle = { viewModel.toggleShuffle() },
                 onRepeat = { viewModel.cycleRepeatMode() },
-                onPrevious = { /* TODO: Implement previous track */ },
-                onNext = { /* TODO: Implement next track */ }
+                onPrevious = { viewModel.playPrevious() },
+                onNext = { viewModel.playNext() }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // Bottom actions
-            ModernBottomActions()
+//            ModernBottomActions()
             
-            Spacer(modifier = Modifier.height(32.dp))
+//            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 
     // Dialogs
     if (showAddToPlaylistDialog) {
         AddToPlaylistDialog(
-            track = track,
+            track = displayedTrack,
             onDismiss = { showAddToPlaylistDialog = false }
         )
     }
 
     if (showAddToEventDialog) {
         AddToEventDialog(
-            track = track,
+            track = displayedTrack,
             onDismiss = { showAddToEventDialog = false }
         )
     }
@@ -272,8 +280,8 @@ private fun ModernPlayerTopBar(
 private fun ModernAlbumArt(track: Track) {
     Card(
         modifier = Modifier
-            .size(300.dp)
-            .align(Alignment.CenterHorizontally),
+            .size(300.dp),
+//            .align(Alignment.CenterHorizontally),
         shape = RoundedCornerShape(24.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
     ) {
@@ -444,6 +452,8 @@ private fun ModernControlButtons(
     isPlaying: Boolean,
     isShuffleEnabled: Boolean,
     repeatMode: RepeatMode,
+    hasPrevious: Boolean,
+    hasNext: Boolean,
     onPlayPause: () -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
@@ -467,6 +477,7 @@ private fun ModernControlButtons(
         ModernControlButton(
             icon = Icons.Filled.SkipPrevious,
             size = 56.dp,
+            enabled = hasPrevious,
             onClick = onPrevious
         )
         
@@ -498,6 +509,7 @@ private fun ModernControlButtons(
         ModernControlButton(
             icon = Icons.Filled.SkipNext,
             size = 56.dp,
+            enabled = hasNext,
             onClick = onNext
         )
         
@@ -521,7 +533,8 @@ private fun ModernControlButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = 48.dp,
-    isActive: Boolean = false
+    isActive: Boolean = false,
+    enabled: Boolean = true
 ) {
     Box(
         modifier = modifier
@@ -530,13 +543,13 @@ private fun ModernControlButton(
             .background(
                 if (isActive) PrimaryTeal.copy(alpha = 0.3f) else GlassWhite
             )
-            .clickable { onClick() },
+            .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             icon,
             contentDescription = null,
-            tint = if (isActive) PrimaryTeal else TextSecondary,
+            tint = if (!enabled) TextSecondary.copy(alpha = 0.3f) else if (isActive) PrimaryTeal else TextSecondary,
             modifier = Modifier.size(size * 0.5f)
         )
     }

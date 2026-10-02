@@ -1,56 +1,15 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg
-*.egg-info/
+# Build output (NestJS dist/, Android build/)
 dist/
 build/
 
-# Virtual environment
-venv/
-env/
+# Node
+node_modules/
 
-# Django secret & settings
-# Backend/MusicRoom/settings.py
-# Backend/MusicRoom/urls.py
-Backend/*.sqlite3
-Backend/*.log
-Backend/*.pot
-Backend/*.pyc
-Backend/.DS_Store
-Backend/db.sqlite3
-
-# Legacy paths (keeping for compatibility)
-MusicRoom/__pycache__/
-MusicRoom/*.py[cod]
-MusicRoom/*.egg
-MusicRoom/*.egg-info/
-MusicRoom/dist/
-MusicRoom/build/
-MusicRoom/settings.py
-MusicRoom/*.sqlite3
-MusicRoom/*.log
-MusicRoom/*.pot
-MusicRoom/*.pyc
-MusicRoom/.DS_Store
-MusicRoom/db.sqlite3
-
-# Environment variables
+# Environment variables (one .env at the root; .env.example is tracked)
 .env
 .env.local
 .env.production
 .env.development
-
-# Django migrations (optional - uncomment if you don't want to track migrations)
-# Backend/*/migrations/
-# !Backend/*/migrations/__init__.py
-
-# Media files (if you have user uploads)
-Backend/media/
-
-# Static files (collected static files)
-Backend/staticfiles/
-Backend/static/
 
 # IDE/editor settings
 .vscode/
@@ -67,24 +26,15 @@ Thumbs.db
 *.log
 logs/
 
-# Coverage reports
-htmlcov/
-.coverage
-.coverage.*
-coverage.xml
-
-# pytest
-.pytest_cache/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# Celery
-celerybeat-schedule
-celerybeat.pid
-
 # Redis dump
 dump.rdb
+
+# Android
+App/.gradle/
+
+# Firebase credentials (contains real API keys)
+App/app/google-services.json
+
+# Load-test fixtures (contains live JWTs for throwaway test accounts)
+Backend-Nest/test/performance/jmeter/tokens.csv
+Backend-Nest/test/performance/jmeter/results/

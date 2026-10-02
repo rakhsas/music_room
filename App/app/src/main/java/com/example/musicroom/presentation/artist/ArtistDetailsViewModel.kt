@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.musicroom.data.models.Song
 import com.example.musicroom.data.models.Artist
+import com.example.musicroom.data.models.Track
 import com.example.musicroom.data.service.MusicApiService
 import com.example.musicroom.data.service.HomeApiService
+import com.example.musicroom.data.service.MusicPlayerService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +19,8 @@ import javax.inject.Inject
 @HiltViewModel
 class ArtistDetailsViewModel @Inject constructor(
     private val musicApiService: MusicApiService,
-    private val homeApiService: HomeApiService
+    private val homeApiService: HomeApiService,
+    private val musicPlayerService: MusicPlayerService
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow<ArtistDetailsUiState>(ArtistDetailsUiState.Loading)
@@ -107,5 +110,10 @@ class ArtistDetailsViewModel @Inject constructor(
             Log.e("ArtistDetailsVM", "Error fetching artist by ID", e)
             null
         }
+    }
+
+    /** Starts playback of the clicked song, queuing the rest of the artist's songs for Previous/Next. */
+    fun playQueue(tracks: List<Track>, startIndex: Int) {
+        musicPlayerService.setQueueAndPlay(tracks, startIndex)
     }
 }

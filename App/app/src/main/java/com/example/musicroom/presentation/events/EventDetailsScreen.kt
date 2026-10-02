@@ -31,8 +31,10 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.musicroom.data.models.Event
+import com.example.musicroom.data.models.Song
 import com.example.musicroom.data.models.Track
 import com.example.musicroom.data.service.EventsApiService
+import com.example.musicroom.data.service.MusicPlayerService
 import com.example.musicroom.presentation.theme.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,16 +48,18 @@ import javax.inject.Inject
 sealed class EventDetailsUiState {
     object Loading : EventDetailsUiState()
     data class Success(
-        val event: Event, 
+        val event: Event,
         val tracks: List<Track>,
-        val isAttending: Boolean
+        val isAttending: Boolean,
+        val tracksLoadFailed: Boolean = false
     ) : EventDetailsUiState()
     data class Error(val message: String) : EventDetailsUiState()
 }
 
 @HiltViewModel
 class EventDetailsViewModel @Inject constructor(
-    private val eventsApiService: EventsApiService
+    private val eventsApiService: EventsApiService,
+    private val musicPlayerService: MusicPlayerService
 ) : ViewModel() {
     
     private val _uiState = MutableStateFlow<EventDetailsUiState>(EventDetailsUiState.Loading)
@@ -99,15 +103,14 @@ class EventDetailsViewModel @Inject constructor(
                 if (isAttending) {
                     // Load tracks only if attending
                     val tracksResult = eventsApiService.getEventTracksWithVotes(eventId)
-                    val tracks = if (tracksResult.isSuccess) {
-                        tracksResult.getOrThrow()
-                    } else {
+                    val tracks = tracksResult.getOrNull() ?: emptyList()
+                    val tracksLoadFailed = tracksResult.isFailure
+                    if (tracksLoadFailed) {
                         Log.w("EventDetailsVM", "⚠️ Failed to load tracks: ${tracksResult.exceptionOrNull()?.message}")
-                        emptyList()
                     }
-                    
+
                     Log.d("EventDetailsVM", "✅ Event details loaded: ${eventDetails.title} with ${tracks.size} tracks (ATTENDING)")
-                    _uiState.value = EventDetailsUiState.Success(eventDetails, tracks, true)
+                    _uiState.value = EventDetailsUiState.Success(eventDetails, tracks, true, tracksLoadFailed)
                 } else {
                     // User not attending, don't load tracks
                     Log.d("EventDetailsVM", "✅ Event details loaded: ${eventDetails.title} - User not attending")
@@ -159,44 +162,142 @@ class EventDetailsViewModel @Inject constructor(
         }
     }
     
-    fun voteForTrack(eventId: String, trackId: String) {
+    fun voteForTrack(eventId: String, trackId: String, onError: (String) -> Unit) {
         viewModelScope.launch {
             try {
                 Log.d("EventDetailsVM", "👍 Voting for track: $trackId")
                 val result = eventsApiService.voteForTrack(eventId, trackId)
                 if (result.isSuccess) {
                     Log.d("EventDetailsVM", "✅ Successfully voted for track")
-                    // Reload event details to get updated vote counts
-                    loadEventDetails(eventId)
+                    refreshVoteCounts(eventId)
                 } else {
-                    Log.e("EventDetailsVM", "❌ Failed to vote for track: ${result.exceptionOrNull()?.message}")
+                    val message = result.exceptionOrNull()?.message ?: "Failed to vote"
+                    Log.e("EventDetailsVM", "❌ Failed to vote for track: $message")
+                    onError(message)
                 }
             } catch (e: Exception) {
                 Log.e("EventDetailsVM", "❌ Error voting for track", e)
+                onError(e.message ?: "Failed to vote")
             }
         }
     }
-    
-    fun unvoteForTrack(eventId: String, trackId: String) {
+
+    fun unvoteForTrack(eventId: String, trackId: String, onError: (String) -> Unit) {
         viewModelScope.launch {
             try {
                 Log.d("EventDetailsVM", "👎 Removing vote for track: $trackId")
                 val result = eventsApiService.unvoteForTrack(eventId, trackId)
                 if (result.isSuccess) {
                     Log.d("EventDetailsVM", "✅ Successfully removed vote for track")
-                    // Reload event details to get updated vote counts
-                    loadEventDetails(eventId)
+                    refreshVoteCounts(eventId)
                 } else {
-                    Log.e("EventDetailsVM", "❌ Failed to remove vote for track: ${result.exceptionOrNull()?.message}")
+                    val message = result.exceptionOrNull()?.message ?: "Failed to remove vote"
+                    Log.e("EventDetailsVM", "❌ Failed to remove vote for track: $message")
+                    onError(message)
                 }
             } catch (e: Exception) {
                 Log.e("EventDetailsVM", "❌ Error removing vote for track", e)
+                onError(e.message ?: "Failed to remove vote")
             }
+        }
+    }
+
+    /** Re-fetches just the track/vote list in place, without dropping to the full-screen Loading state. */
+    private fun refreshTracks(eventId: String) {
+        viewModelScope.launch {
+            val current = _uiState.value
+            if (current !is EventDetailsUiState.Success) return@launch
+            eventsApiService.getEventTracksWithVotes(eventId)
+                .onSuccess { tracks -> _uiState.value = current.copy(tracks = tracks, tracksLoadFailed = false) }
+                .onFailure {
+                    Log.w("EventDetailsVM", "⚠️ Failed to refresh tracks: ${it.message}")
+                    // Keep whatever tracks were already showing - just flag that a fresh load failed,
+                    // instead of wiping the list (which used to look like "this event has 0 tracks").
+                    _uiState.value = current.copy(tracksLoadFailed = true)
+                }
+        }
+    }
+
+    /** Retry hook for the "couldn't load tracks" state. */
+    fun retryLoadTracks(eventId: String) {
+        refreshTracks(eventId)
+    }
+
+    /**
+     * Patches vote counts/hasUserVoted into the already-loaded track list after a vote/unvote.
+     * Deliberately does NOT call [refreshTracks] - track metadata (title/artist/art/audio) is
+     * fetched from Jamendo and never changes from a vote, so re-fetching it on every tap would
+     * just be hammering Jamendo for no reason.
+     */
+    private fun refreshVoteCounts(eventId: String) {
+        viewModelScope.launch {
+            val current = _uiState.value
+            if (current !is EventDetailsUiState.Success) return@launch
+            eventsApiService.getEventVoteData(eventId).onSuccess { voteData ->
+                val updatedTracks = current.tracks.map { track ->
+                    val info = voteData[track.id]
+                    track.copy(voteCount = info?.first ?: 0, hasUserVoted = info?.second ?: false)
+                }
+                _uiState.value = current.copy(tracks = updatedTracks)
+            }.onFailure {
+                Log.w("EventDetailsVM", "⚠️ Failed to refresh vote counts: ${it.message}")
+            }
+        }
+    }
+
+    /**
+     * Adds [song] (already fetched from Jamendo by the search dialog) to the event and appends
+     * it straight to the cached track list - no need to hit Jamendo again just to re-learn the
+     * metadata of a track we already have in hand.
+     */
+    fun addTrack(eventId: String, song: Song, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            eventsApiService.addTrackToEvent(eventId, song.id).fold(
+                onSuccess = {
+                    val current = _uiState.value
+                    if (current is EventDetailsUiState.Success && current.tracks.none { it.id == song.id }) {
+                        _uiState.value = current.copy(tracks = current.tracks + song.toTrack())
+                    }
+                    onSuccess()
+                },
+                onFailure = { onError(it.message ?: "Failed to add track") }
+            )
         }
     }
     
     fun refresh(eventId: String) {
         loadEventDetails(eventId)
+    }
+
+    fun updateEvent(
+        eventId: String,
+        request: com.example.musicroom.data.service.CreateEventRequest,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            eventsApiService.updateEvent(eventId, request).fold(
+                onSuccess = {
+                    loadEventDetails(eventId)
+                    onSuccess()
+                },
+                onFailure = { onError(it.message ?: "Failed to update event") }
+            )
+        }
+    }
+
+    fun deleteEvent(eventId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            eventsApiService.deleteEvent(eventId).fold(
+                onSuccess = { onSuccess() },
+                onFailure = { onError(it.message ?: "Failed to delete event") }
+            )
+        }
+    }
+
+    /** Starts playback of the clicked track, queuing the rest of the event's tracks for Previous/Next. */
+    fun playQueue(tracks: List<Track>, startIndex: Int) {
+        musicPlayerService.setQueueAndPlay(tracks, startIndex)
     }
 }
 
@@ -207,11 +308,16 @@ fun EventDetailsScreen(
     viewModel: EventDetailsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    
+    var showEditDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var isSavingEvent by remember { mutableStateOf(false) }
+    var isDeletingEvent by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(eventId) {
         viewModel.loadEventDetails(eventId)
     }
-    
+
     Box(modifier = Modifier.fillMaxSize()) {
         when (val currentState = uiState) {
             is EventDetailsUiState.Loading -> {
@@ -276,6 +382,7 @@ fun EventDetailsScreen(
                     EventDetailsContent(
                         event = currentState.event,
                         tracks = currentState.tracks,
+                        tracksLoadFailed = currentState.tracksLoadFailed,
                         isAttending = currentState.isAttending,
                         onJoinEvent = { 
                             Log.d("EventDetailsScreen", "🎪 Join button clicked")
@@ -287,17 +394,24 @@ fun EventDetailsScreen(
                         },
                         onVoteTrack = { trackId ->
                             Log.d("EventDetailsScreen", "👍 Vote for track: $trackId")
-                            viewModel.voteForTrack(eventId, trackId)
+                            viewModel.voteForTrack(eventId, trackId, onError = { error -> errorMessage = error })
                         },
                         onUnvoteTrack = { trackId ->
                             Log.d("EventDetailsScreen", "👎 Unvote for track: $trackId")
-                            viewModel.unvoteForTrack(eventId, trackId)
+                            viewModel.unvoteForTrack(eventId, trackId, onError = { error -> errorMessage = error })
                         },
+                        onEditEvent = { showEditDialog = true },
+                        onDeleteEvent = { showDeleteDialog = true },
+                        onPlayTrack = { index -> viewModel.playQueue(currentState.tracks, index) },
+                        onAddTrack = { song, onSuccess, onError ->
+                            viewModel.addTrack(eventId, song, onSuccess, onError)
+                        },
+                        onRetryTracks = { viewModel.retryLoadTracks(eventId) },
                         navController = navController
                     )
                 }
             }
-            
+
             is EventDetailsUiState.Error -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -339,20 +453,138 @@ fun EventDetailsScreen(
             }
         }
     }
+
+    val currentEvent = (uiState as? EventDetailsUiState.Success)?.event
+
+    if (showEditDialog && currentEvent != null) {
+        CreateEventDialog(
+            isCreating = isSavingEvent,
+            dialogTitle = "Edit Event",
+            confirmButtonText = "Save Changes",
+            confirmButtonLoadingText = "Saving...",
+            initialTitle = currentEvent.title,
+            initialLocation = currentEvent.location,
+            initialDescription = currentEvent.description ?: "",
+            initialIsPublic = currentEvent.is_public,
+            initialStartTime = currentEvent.event_start_time,
+            initialEndTime = currentEvent.event_end_time,
+            onCreateEvent = { title, location, description, isPublic, startTime, endTime ->
+                isSavingEvent = true
+                viewModel.updateEvent(
+                    eventId = eventId,
+                    request = com.example.musicroom.data.service.CreateEventRequest(
+                        title = title,
+                        description = description,
+                        location = location,
+                        event_start_time = startTime,
+                        event_end_time = endTime,
+                        is_public = isPublic
+                    ),
+                    onSuccess = {
+                        isSavingEvent = false
+                        showEditDialog = false
+                    },
+                    onError = { error ->
+                        isSavingEvent = false
+                        errorMessage = error
+                        showEditDialog = false
+                    }
+                )
+            },
+            onDismiss = { if (!isSavingEvent) showEditDialog = false }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isDeletingEvent) showDeleteDialog = false },
+            title = { Text("Delete Event", color = TextPrimary) },
+            text = {
+                Text(
+                    "Are you sure you want to delete this event? This action cannot be undone.",
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isDeletingEvent = true
+                        viewModel.deleteEvent(
+                            eventId = eventId,
+                            onSuccess = {
+                                isDeletingEvent = false
+                                showDeleteDialog = false
+                                navController.popBackStack()
+                            },
+                            onError = { error ->
+                                isDeletingEvent = false
+                                errorMessage = error
+                                showDeleteDialog = false
+                            }
+                        )
+                    },
+                    enabled = !isDeletingEvent
+                ) {
+                    Text("Delete", color = Color.Red)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteDialog = false },
+                    enabled = !isDeletingEvent
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = DarkSurface
+        )
+    }
+
+    errorMessage?.let { error ->
+        LaunchedEffect(error) {
+            kotlinx.coroutines.delay(3000)
+            errorMessage = null
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                action = {
+                    TextButton(onClick = { errorMessage = null }) {
+                        Text("Dismiss", color = Color.White)
+                    }
+                },
+                actionOnNewLine = true,
+                containerColor = Color.Red.copy(alpha = 0.9f),
+                contentColor = Color.White
+            ) {
+                Text(text = error, color = Color.White, fontSize = 14.sp)
+            }
+        }
+    }
 }
 
 @Composable
 private fun EventDetailsContent(
     event: Event,
     tracks: List<Track>,
+    tracksLoadFailed: Boolean,
     isAttending: Boolean,
     onJoinEvent: () -> Unit,
     onLeaveEvent: () -> Unit,
     onVoteTrack: (String) -> Unit,
     onUnvoteTrack: (String) -> Unit,
+    onEditEvent: () -> Unit,
+    onDeleteEvent: () -> Unit,
+    onPlayTrack: (Int) -> Unit,
+    onAddTrack: (song: Song, onSuccess: () -> Unit, onError: (String) -> Unit) -> Unit,
+    onRetryTracks: () -> Unit,
     navController: NavController
 ) {
     var showInviteDialog by remember { mutableStateOf(false) }
+    var showAddTrackDialog by remember { mutableStateOf(false) }
     
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -464,18 +696,24 @@ private fun EventDetailsContent(
                                 fontSize = 14.sp
                             )
                         }
-                        
+
                         Button(
                             onClick = if (isAttending) onLeaveEvent else onJoinEvent,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (isAttending) Color.Red else PrimaryPurple
-                            )
+                            ),
+                            modifier = Modifier.size(40.dp),
+                            contentPadding = PaddingValues(0.dp)
                         ) {
-                            Text(
-                                text = if (isAttending) "Leave" else "Join",
-                                color = Color.White
+                            Icon(
+                                imageVector = if (isAttending)
+                                    Icons.Default.ExitToApp
+                                else
+                                    Icons.Default.PersonAdd,
+                                contentDescription = if (isAttending) "Leave event" else "Join event",
+                                modifier = Modifier.size(24.dp),
+                                tint = Color.White
                             )
-                            Log.d("EventDetailsScreen", "🔘 Button rendered: '${if (isAttending) "Leave" else "Join"}' (${if (isAttending) "Red" else "Purple"})")
                         }
                     }
                 }
@@ -522,9 +760,9 @@ private fun EventDetailsContent(
                         ) {
                             // Edit Event Button
                             OutlinedButton(
-                                onClick = { 
-                                    // TODO: Navigate to edit event screen
+                                onClick = {
                                     Log.d("EventDetailsScreen", "✏️ Edit event clicked")
+                                    onEditEvent()
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.outlinedButtonColors(
@@ -542,9 +780,9 @@ private fun EventDetailsContent(
                             
                             // Delete Event Button
                             OutlinedButton(
-                                onClick = { 
-                                    // TODO: Show delete confirmation dialog
+                                onClick = {
                                     Log.d("EventDetailsScreen", "🗑️ Delete event clicked")
+                                    onDeleteEvent()
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.outlinedButtonColors(
@@ -589,7 +827,7 @@ private fun EventDetailsContent(
                             )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.ThumbUp,
@@ -602,12 +840,60 @@ private fun EventDetailsContent(
                                     color = TextSecondary,
                                     fontSize = 14.sp
                                 )
+                                IconButton(
+                                    onClick = { showAddTrackDialog = true },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Add track",
+                                        tint = PrimaryPurple
+                                    )
+                                }
                             }
                         }
                         
                         Spacer(modifier = Modifier.height(16.dp))
                         
-                        if (tracks.isEmpty()) {
+                        if (tracks.isEmpty() && tracksLoadFailed) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Error,
+                                        contentDescription = "Couldn't load tracks",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "Couldn't load tracks",
+                                        color = TextSecondary,
+                                        fontSize = 16.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Text(
+                                        text = "This event may still have tracks - check your connection and try again",
+                                        color = TextSecondary.copy(alpha = 0.7f),
+                                        fontSize = 14.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Button(
+                                        onClick = onRetryTracks,
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
+                                    ) {
+                                        Text("Try Again")
+                                    }
+                                }
+                            }
+                        } else if (tracks.isEmpty()) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -636,6 +922,19 @@ private fun EventDetailsContent(
                                         fontSize = 14.sp,
                                         textAlign = TextAlign.Center
                                     )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Button(
+                                        onClick = { showAddTrackDialog = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Add a Track")
+                                    }
                                 }
                             }
                         } else {
@@ -650,6 +949,7 @@ private fun EventDetailsContent(
                                         currentUserRole = event.current_user_role,
                                         onTrackClick = {
                                             try {
+                                                onPlayTrack(index)
                                                 navigateToNowPlaying(navController, track)
                                             } catch (e: Exception) {
                                                 Log.e("EventDetailsScreen", "❌ Navigation error", e)
@@ -713,6 +1013,14 @@ private fun EventDetailsContent(
             eventId = event.id,
             eventTitle = event.title,
             onDismiss = { showInviteDialog = false }
+        )
+    }
+
+    // Add Track Dialog
+    if (showAddTrackDialog) {
+        AddEventTrackDialog(
+            onDismiss = { showAddTrackDialog = false },
+            onAddTrack = onAddTrack
         )
     }
 }
@@ -1017,7 +1325,7 @@ private fun EventInfoCard(event: Event) {
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "${event.attendee_count} attending",
+                            text = "${event.attendeeCount} attending",
                             color = TextSecondary,
                             fontSize = 14.sp
                         )
@@ -1034,7 +1342,7 @@ private fun EventInfoCard(event: Event) {
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "${event.track_count} tracks",
+                            text = "${event.trackCount} tracks",
                             color = TextSecondary,
                             fontSize = 14.sp
                         )
@@ -1063,6 +1371,28 @@ private fun navigateToNowPlaying(navController: NavController, track: Track) {
 
 // Helper function to format date time
 private fun formatEventDateTime(dateTimeString: String): String {
-    // TODO: Implement proper date/time formatting
-    return dateTimeString.take(19).replace("T", " at ") // Simple formatting for now
+    val outputFormat = java.text.SimpleDateFormat("MMM d, yyyy 'at' h:mm a", java.util.Locale.getDefault())
+    val inputPatterns = listOf(
+        "yyyy-MM-dd'T'HH:mm:ssXXX",
+        "yyyy-MM-dd'T'HH:mm:ss"
+    )
+    for (pattern in inputPatterns) {
+        try {
+            val parsed = java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault()).parse(dateTimeString)
+            if (parsed != null) return outputFormat.format(parsed)
+        } catch (e: java.text.ParseException) {
+            // try next pattern
+        }
+    }
+    return dateTimeString.take(19).replace("T", " at ")
 }
+
+private fun Song.toTrack(): Track = Track(
+    id = id,
+    title = name,
+    artist = artist_name,
+    thumbnailUrl = image ?: album_image ?: "",
+    duration = String.format("%d:%02d", duration / 60, duration % 60),
+    channelTitle = album_name,
+    description = audio
+)

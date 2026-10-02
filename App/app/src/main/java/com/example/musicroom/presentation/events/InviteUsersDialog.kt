@@ -95,21 +95,21 @@ class InviteUsersViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _isInviting.value = true
-                Log.d("InviteUsersVM", "📧 Inviting user ${user.name} to event $eventId")
+                Log.d("InviteUsersVM", "📧 Inviting user ${user.fullName} to event $eventId")
                 
                 val result = eventsApiService.inviteUserToEvent(eventId, user.id, role)
                 if (result.isSuccess) {
-                    Log.d("InviteUsersVM", "✅ Successfully invited user ${user.name}")
-                    _inviteResult.value = InviteResult.Success(user.name)
+                    Log.d("InviteUsersVM", "✅ Successfully invited user ${user.fullName}")
+                    _inviteResult.value = InviteResult.Success(user.fullName)
                 } else {
                     val error = result.exceptionOrNull()?.message ?: "Unknown error"
                     Log.e("InviteUsersVM", "❌ Failed to invite user: $error")
-                    _inviteResult.value = InviteResult.Error("Failed to invite ${user.name}: $error")
+                    _inviteResult.value = InviteResult.Error("Failed to invite ${user.fullName}: $error")
                 }
                 
             } catch (e: Exception) {
                 Log.e("InviteUsersVM", "❌ Error inviting user", e)
-                _inviteResult.value = InviteResult.Error("Failed to invite ${user.name}: ${e.message}")
+                _inviteResult.value = InviteResult.Error("Failed to invite ${user.fullName}: ${e.message}")
             } finally {
                 _isInviting.value = false
             }
@@ -415,7 +415,7 @@ private fun UserCard(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = user.name.take(1).uppercase(),
+                    text = user.fullName.take(1).uppercase(),
                     color = PrimaryPurple,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
@@ -427,7 +427,7 @@ private fun UserCard(
             // User info
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = user.name,
+                    text = user.fullName,
                     color = TextPrimary,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,

@@ -155,7 +155,7 @@ fun EventsScreen(
                             contentDescription = tab.displayName,
                             modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = tab.displayName,
                             fontSize = 14.sp,
@@ -502,7 +502,7 @@ private fun EventCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "${event.attendee_count}",
+                            text = "${event.attendeeCount}",
                             color = TextSecondary,
                             fontSize = 12.sp
                         )
@@ -522,7 +522,7 @@ private fun EventCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "${event.track_count}",
+                            text = "${event.trackCount}",
                             color = TextSecondary,
                             fontSize = 12.sp
                         )

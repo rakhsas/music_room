@@ -61,10 +61,12 @@ fun RegistrationView(
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     var name by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf("") }
+    var usernameError by remember { mutableStateOf("") }
     var emailError by remember { mutableStateOf("") }
     var passwordError by remember { mutableStateOf("") }
     var showSuccessMessage by remember { mutableStateOf(false) }
@@ -146,7 +148,21 @@ fun RegistrationView(
                         icon = Icons.Default.Person,
                         errorMessage = nameError
                     )
-                    
+
+                    // ========================================================
+                    // USERNAME INPUT FIELD
+                    // ========================================================
+                    ModernTextField(
+                        value = username,
+                        onValueChange = {
+                            username = it
+                            usernameError = ""
+                        },
+                        label = "Username",
+                        icon = Icons.Default.AccountCircle,
+                        errorMessage = usernameError
+                    )
+
                     // ========================================================
                     // EMAIL INPUT FIELD
                     // ========================================================
@@ -205,17 +221,26 @@ fun RegistrationView(
                         onClick = { 
                             // Clear previous errors
                             nameError = ""
+                            usernameError = ""
                             emailError = ""
                             passwordError = ""
-                            
+
                             // Validate inputs
                             var isValid = true
-                            
+
                             if (name.isBlank()) {
                                 nameError = "Name is required"
                                 isValid = false
                             }
-                            
+
+                            if (username.isBlank()) {
+                                usernameError = "Username is required"
+                                isValid = false
+                            } else if (!username.matches(Regex("^[a-zA-Z0-9_.]{3,150}$"))) {
+                                usernameError = "3-150 letters, numbers, dots or underscores"
+                                isValid = false
+                            }
+
                             if (email.isBlank()) {
                                 emailError = "Email is required"
                                 isValid = false
@@ -234,7 +259,7 @@ fun RegistrationView(
                             
                             if (isValid) {
                                 Log.d("RegistrationView", "Calling signup API for: $email")
-                                viewModel.signUp(email, password, name)
+                                viewModel.signUp(email, password, name, username)
                             }
                         },
                         enabled = authState !is AuthState.Loading,
@@ -264,57 +289,17 @@ fun RegistrationView(
                 }
             }
             
-            // ================================================================
-            // ERROR DISPLAY SECTION
-            // ================================================================
-            if (authState is AuthState.Error) {
-                val errorState = authState as AuthState.Error
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = DarkError.copy(alpha = 0.2f)
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Error,
-                            "Error",
-                            tint = DarkError,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Registration Error",
-                                color = TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = errorState.message,
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                }
-            }
-            
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // ================================================================
             // BACK TO LOGIN SECTION
             // ================================================================
             ModernBackToLoginSection(onBackToLoginClick)
-            
+
             Spacer(modifier = Modifier.height(32.dp))
         }
+
+        AuthErrorBanner(authState = authState, onDismiss = { viewModel.clearState() })
     }
 }
 
